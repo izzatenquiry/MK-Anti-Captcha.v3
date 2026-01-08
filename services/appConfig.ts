@@ -11,14 +11,9 @@ export const getBotAdminApiUrl = (): string => {
     if (typeof window !== 'undefined') {
         const hostname = window.location.hostname;
         
-        // Production
-        if (hostname === 'app.monoklix.com') {
-            return 'http://54.39.98.48:1247';
-        }
-        
-        // Development/Staging
-        if (hostname === 'dev.monoklix.com') {
-            return 'http://54.39.98.48:1247';
+        // Production and Development - use HTTPS subdomain via Cloudflare Tunnel
+        if (hostname === 'app.monoklix.com' || hostname === 'dev.monoklix.com') {
+            return 'https://api.monoklix.com';
         }
         
         // Local development
@@ -31,21 +26,16 @@ export const getBotAdminApiUrl = (): string => {
 
 /**
  * Get Bot Admin API URL with auto-detection and fallback
- * - app.monoklix.com / dev.monoklix.com → use server IP directly
+ * - app.monoklix.com / dev.monoklix.com → use HTTPS subdomain via Cloudflare Tunnel
  * - localhost → directly use localhost:1247 (no testing needed)
  */
 export const getBotAdminApiUrlWithFallback = async (): Promise<string> => {
     if (typeof window !== 'undefined') {
         const hostname = window.location.hostname;
         
-        // Production - use server IP directly
-        if (hostname === 'app.monoklix.com') {
-            return 'http://54.39.98.48:1247';
-        }
-        
-        // Development/Staging - use server IP directly
-        if (hostname === 'dev.monoklix.com') {
-            return 'http://54.39.98.48:1247';
+        // Production and Development - use HTTPS subdomain via Cloudflare Tunnel
+        if (hostname === 'app.monoklix.com' || hostname === 'dev.monoklix.com') {
+            return 'https://api.monoklix.com';
         }
         
         // Localhost - directly use localhost:1247 (no testing needed)
