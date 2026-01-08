@@ -403,7 +403,7 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
                             <div className="text-[11px] sm:text-xs text-blue-800 dark:text-blue-200">
                                 <p className="text-[11px] sm:text-xs font-bold mb-2 uppercase tracking-wide">How to get your Flow Token:</p>
                                 <ol className="text-[11px] sm:text-xs space-y-1.5 list-decimal list-inside font-medium">
-                                    <li>Click "Get New Token" button below</li>
+                                    <li>Click "Generate NEW Token" button below</li>
                                     <li>Token will be automatically generated and saved</li>
                                     <li>You can use it immediately for your session</li>
                                 </ol>
@@ -506,7 +506,7 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
                                 ) : (
                                     <>
                                         <KeyIcon className="w-4 h-4" />
-                                        Get New Token
+                                        Generate NEW Token
                                     </>
                                 )}
                             </button>

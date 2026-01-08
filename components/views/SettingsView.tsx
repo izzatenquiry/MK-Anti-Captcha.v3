@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { type User, type AiLogItem, type Language } from '../../types';
-import { assignPersonalTokenAndIncrementUsage } from '../../services/userService';
+import { assignPersonalTokenAndIncrementUsage, hasActiveTokenUltra } from '../../services/userService';
 import {
     CreditCardIcon, CheckCircleIcon, XIcon, EyeIcon, EyeOffIcon, ChatIcon,
     AlertTriangleIcon, DatabaseIcon, TrashIcon, RefreshCwIcon, WhatsAppIcon, InformationCircleIcon, SparklesIcon, VideoIcon, ImageIcon, KeyIcon, ActivityIcon, TelegramIcon, DownloadIcon, PlayIcon
@@ -18,13 +18,19 @@ import RegisterTokenUltra from '../RegisterTokenUltra';
 // Define the types for the settings view tabs
 type SettingsTabId = 'profile' | 'flowLogin' | 'registerTokenUltra';
 
-const getTabs = (): Tab<SettingsTabId>[] => {
+const getTabs = (hideTokenUltra: boolean = false): Tab<SettingsTabId>[] => {
     const T = getTranslations().settingsView;
-    return [
+    const tabs: Tab<SettingsTabId>[] = [
         { id: 'profile', label: T.tabs.profile },
         { id: 'flowLogin', label: 'Token Setting' },
-        { id: 'registerTokenUltra', label: 'Token Ultra' },
     ];
+    
+    // Only add Token Ultra tab if user doesn't have active Token Ultra
+    if (!hideTokenUltra) {
+        tabs.push({ id: 'registerTokenUltra', label: 'Token Ultra' });
+    }
+    
+    return tabs;
 }
 
 interface Message {
@@ -372,7 +378,61 @@ const CacheManagerPanel: React.FC<CacheManagerPanelProps> = ({ currentUser }) =>
 
 const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, tempApiKey, onUserUpdate, language, setLanguage, veoTokenRefreshedAt, assignTokenProcess, onOpenChangeServerModal }) => {
     const [activeTab, setActiveTab] = useState<SettingsTabId>('profile');
-    const tabs = getTabs();
+    const [isTokenUltraActive, setIsTokenUltraActive] = useState(false);
+    
+    // Check Token Ultra status
+    useEffect(() => {
+        const checkTokenUltraStatus = async () => {
+            if (!currentUser) return;
+            
+            // Check sessionStorage first for cached status
+            const cachedStatus = sessionStorage.getItem(`token_ultra_active_${currentUser.id}`);
+            const cachedTimestamp = sessionStorage.getItem(`token_ultra_active_timestamp_${currentUser.id}`);
+            
+            let isActive = false;
+            
+            if (cachedStatus === 'true' && cachedTimestamp) {
+                const cacheAge = Date.now() - parseInt(cachedTimestamp, 10);
+                // Cache valid for 2 minutes
+                if (cacheAge < 2 * 60 * 1000) {
+                    isActive = true;
+                }
+            }
+            
+            // If not cached or cache expired, check with API
+            if (!isActive && cachedStatus !== 'true') {
+                isActive = await hasActiveTokenUltra(currentUser.id);
+            }
+            
+            setIsTokenUltraActive(isActive);
+            
+            // If user is on registerTokenUltra tab and Token Ultra becomes active, switch to profile tab
+            if (isActive) {
+                setActiveTab(prevTab => {
+                    if (prevTab === 'registerTokenUltra') {
+                        return 'profile';
+                    }
+                    return prevTab;
+                });
+            }
+        };
+        
+        checkTokenUltraStatus();
+        
+        // Listen for user updates that might change Token Ultra status
+        const handleUserUpdate = () => {
+            checkTokenUltraStatus();
+        };
+        
+        // Check periodically (every 30 seconds) to catch status changes
+        const interval = setInterval(checkTokenUltraStatus, 30000);
+        
+        return () => {
+            clearInterval(interval);
+        };
+    }, [currentUser?.id]);
+    
+    const tabs = getTabs(isTokenUltraActive);
 
     const renderContent = () => {
         switch (activeTab) {
