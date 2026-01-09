@@ -7,12 +7,6 @@ import Spinner from '../common/Spinner';
 import { FilmIcon, DownloadIcon, CheckCircleIcon, AlertTriangleIcon } from '../Icons';
 import TwoColumnLayout from '../common/TwoColumnLayout';
 
-declare global {
-    interface Window {
-        FFmpeg: any;
-        FFmpegUtil: any;
-    }
-}
 
 type EngineStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -24,87 +18,16 @@ const VideoCombinerView: React.FC<{ language: Language }> = ({ language }) => {
     const [progressMessage, setProgressMessage] = useState('');
     const [outputUrl, setOutputUrl] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const ffmpegRef = useRef<any>(null);
     const [blobUrls, setBlobUrls] = useState<Map<string, string>>(new Map());
     const [engineStatus, setEngineStatus] = useState<EngineStatus>('idle');
     const loadingAttemptRef = useRef(false);
 
-    // ✅ SIMPLE: Just wait for FFmpeg from HTML script tags
+    // Use server-side video combining (localhost:3001)
     useEffect(() => {
-        const initFFmpeg = async () => {
-            if (loadingAttemptRef.current || ffmpegRef.current || engineStatus !== 'idle') {
-                return;
-            }
-
-            loadingAttemptRef.current = true;
-            setEngineStatus('loading');
-            setError(null);
-            setProgressMessage('Waiting for video engine to load...');
-
-            try {
-                // Wait for FFmpeg libraries (loaded from HTML script tags)
-                let attempts = 0;
-                const maxAttempts = 60; // 15 seconds
-                
-                while ((!window.FFmpeg || !window.FFmpegUtil) && attempts < maxAttempts) {
-                    await new Promise(resolve => setTimeout(resolve, 250));
-                    attempts++;
-                    
-                    if (attempts % 4 === 0) {
-                        setProgressMessage(`Loading libraries... (${Math.round(attempts / 4)}s)`);
-                    }
-                }
-
-                if (!window.FFmpeg || !window.FFmpegUtil) {
-                    throw new Error(
-                        "Video processing library failed to load. " +
-                        "Please check your internet connection and reload the page. " +
-                        "Ensure the script tags in index.html are correct."
-                    );
-                }
-
-                console.log('✅ FFmpeg libraries detected');
-                setProgressMessage('Initializing FFmpeg...');
-
-                // Create FFmpeg instance
-                const { createFFmpeg } = window.FFmpeg;
-                const ffmpeg = createFFmpeg({
-                    log: true,
-                    coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.js',
-                });
-
-                // Enhanced logger
-                ffmpeg.setLogger(({ type, message }: { type: string; message: string }) => {
-                    console.log(`[FFmpeg ${type}]`, message);
-                    if (isCombining && message.includes('time=')) {
-                        const timeMatch = message.match(/time=(\d{2}:\d{2}:\d{2})/);
-                        if (timeMatch) {
-                            setProgressMessage(`Processing: ${timeMatch[1]}`);
-                        }
-                    }
-                });
-
-                setProgressMessage('Loading FFmpeg core...');
-                await ffmpeg.load();
-
-                ffmpegRef.current = ffmpeg;
-                setEngineStatus('ready');
-                setProgressMessage('');
-                console.log('✅ FFmpeg ready');
-
-            } catch (err) {
-                console.error('❌ FFmpeg init error:', err);
-                const errorMsg = err instanceof Error ? err.message : 'Failed to initialize video engine';
-                setError(errorMsg);
-                setEngineStatus('error');
-                setProgressMessage('');
-            } finally {
-                loadingAttemptRef.current = false;
-            }
-        };
-
-        initFFmpeg();
-    }, [engineStatus, isCombining]);
+        // Server-side combining doesn't need FFmpeg in browser
+        setEngineStatus('ready');
+        setError(null);
+    }, []);
 
     // Fetch videos
     useEffect(() => {
@@ -141,14 +64,15 @@ const VideoCombinerView: React.FC<{ language: Language }> = ({ language }) => {
         );
     };
 
+    // Helper function to get selection number based on order
+    const getSelectionNumber = (id: string): number | null => {
+        const index = selectedVideos.indexOf(id);
+        return index !== -1 ? index + 1 : null;
+    };
+
     const handleCombine = async () => {
         if (selectedVideos.length < 2) {
             setError("Please select at least 2 videos to combine.");
-            return;
-        }
-
-        if (engineStatus !== 'ready' || !ffmpegRef.current) {
-            setError("Video engine is not ready. Please wait or reload.");
             return;
         }
 
@@ -158,69 +82,51 @@ const VideoCombinerView: React.FC<{ language: Language }> = ({ language }) => {
         if (outputUrl) URL.revokeObjectURL(outputUrl);
         setOutputUrl(null);
 
-        const tempFiles: string[] = [];
-
         try {
-            const ffmpeg = ffmpegRef.current;
-            const selectedItems = allVideos.filter(v => selectedVideos.includes(v.id));
+            // Map selectedVideos order to actual video items to preserve selection order
+            const selectedItems = selectedVideos
+                .map(id => allVideos.find(v => v.id === id))
+                .filter((item): item is HistoryItem => item !== undefined);
             
-            let fileList = '';
-
-            // Write videos to virtual filesystem
+            // Prepare FormData with video files
+            const formData = new FormData();
             for (let i = 0; i < selectedItems.length; i++) {
                 const item = selectedItems[i];
                 if (!(item.result instanceof Blob)) {
                     throw new Error(`Video ${i + 1} is invalid`);
                 }
-
-                const fileName = `input${i}.mp4`;
-                tempFiles.push(fileName);
                 
-                setProgressMessage(`Loading video ${i + 1}/${selectedItems.length}...`);
-                
-                const videoData = await window.FFmpegUtil.fetchFile(item.result);
-                ffmpeg.FS('writeFile', fileName, videoData);
-                fileList += `file '${fileName}'\n`;
+                setProgressMessage(`Uploading video ${i + 1}/${selectedItems.length}...`);
+                formData.append('videos', item.result, `video${i}.mp4`);
             }
 
-            tempFiles.push('filelist.txt', 'output.mp4');
-            ffmpeg.FS('writeFile', 'filelist.txt', fileList);
+            setProgressMessage('Combining videos on server... This may take a moment.');
 
-            setProgressMessage('Combining videos... This may take a moment.');
-            console.log('🎬 Starting video combine...');
+            // Send to backend server
+            const response = await fetch('http://localhost:3001/api/video/combine', {
+                method: 'POST',
+                body: formData,
+            });
 
-            // Combine with re-encoding for better compatibility
-            await ffmpeg.run(
-                '-f', 'concat',
-                '-safe', '0',
-                '-i', 'filelist.txt',
-                '-c:v', 'libx264',
-                '-preset', 'fast',
-                '-crf', '23',
-                '-c:a', 'aac',
-                '-b:a', '192k',
-                'output.mp4'
-            );
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: 'Server error' }));
+                throw new Error(errorData.error || `Server error: ${response.status}`);
+            }
 
-            console.log('✅ Combine finished');
-            setProgressMessage('Finishing up...');
-
-            const data = ffmpeg.FS('readFile', 'output.mp4');
-            const blob = new Blob([data.buffer], { type: 'video/mp4' });
+            setProgressMessage('Finalizing...');
+            
+            // Get the combined video as blob
+            const blob = await response.blob();
             const url = URL.createObjectURL(blob);
             setOutputUrl(url);
+            
+            setProgressMessage('');
 
         } catch (err) {
             console.error('❌ Combine error:', err);
             const errorMsg = err instanceof Error ? err.message : 'Combine operation failed';
             setError(errorMsg);
         } finally {
-            // Clean up virtual files
-            if (ffmpegRef.current) {
-                for (const file of tempFiles) {
-                    try { ffmpegRef.current.FS('unlink', file); } catch (e) {}
-                }
-            }
             setIsCombining(false);
             setProgressMessage('');
         }
@@ -247,13 +153,21 @@ const VideoCombinerView: React.FC<{ language: Language }> = ({ language }) => {
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                             {allVideos.map(video => {
                                 const isSelected = selectedVideos.includes(video.id);
+                                const selectionNumber = getSelectionNumber(video.id);
                                 const url = blobUrls.get(video.id);
                                 return (
                                     <div key={video.id} className="relative aspect-square cursor-pointer" onClick={() => toggleVideoSelection(video.id)}>
                                         {url ? <video src={url} className="w-full h-full object-cover rounded-md bg-black" /> : <div className="w-full h-full bg-neutral-200 dark:bg-neutral-700 rounded-md"></div>}
                                         {isSelected && (
                                             <div className="absolute inset-0 bg-primary-500/50 flex items-center justify-center rounded-md ring-4 ring-primary-500">
-                                                <CheckCircleIcon className="w-8 h-8 text-white"/>
+                                                <div className="flex flex-col items-center justify-center gap-1">
+                                                    <CheckCircleIcon className="w-8 h-8 text-white"/>
+                                                    {selectionNumber !== null && (
+                                                        <div className="bg-white text-primary-600 font-bold text-lg rounded-full w-8 h-8 flex items-center justify-center shadow-lg">
+                                                            {selectionNumber}
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -273,17 +187,17 @@ const VideoCombinerView: React.FC<{ language: Language }> = ({ language }) => {
                         <p className="text-sm text-blue-800 dark:text-blue-300">{progressMessage || 'Loading video engine...'}</p>
                     </div>
                 )}
-                 {engineStatus === 'error' && (
-                    <div className="flex items-start gap-2 p-3 bg-red-100 dark:bg-red-900/40 rounded-md">
+                 {error && engineStatus === 'error' && (
+                    <div className="flex items-start gap-2 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                         <AlertTriangleIcon className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
                         <div className="text-sm text-red-800 dark:text-red-300">
-                            <p className="font-semibold">Video Library Error</p>
+                            <p className="font-semibold mb-1">Error</p>
                             <p className="text-xs">{error}</p>
                         </div>
                     </div>
                 )}
                  <div className="flex gap-4">
-                    <button onClick={handleCombine} disabled={isCombining || selectedVideos.length < 2 || engineStatus !== 'ready'} className="w-full flex items-center justify-center gap-2 bg-primary-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    <button onClick={handleCombine} disabled={isCombining || selectedVideos.length < 2} className="w-full flex items-center justify-center gap-2 bg-primary-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                         {isCombining ? <Spinner/> : 'Combine Videos'}
                     </button>
                     <button onClick={handleReset} disabled={isCombining} className="flex-shrink-0 bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-200 font-semibold py-3 px-4 rounded-lg hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors disabled:opacity-50">
@@ -302,10 +216,20 @@ const VideoCombinerView: React.FC<{ language: Language }> = ({ language }) => {
                     <p className="text-neutral-500 dark:text-neutral-400">{progressMessage || 'Processing...'}</p>
                 </div>
             ) : error ? (
-                <div className="text-center p-4 text-red-500 dark:text-red-400">
-                    <AlertTriangleIcon className="w-12 h-12 mx-auto mb-2"/>
-                    <p className="font-semibold">Oh no!</p>
+                <div className="text-center p-6 text-red-500 dark:text-red-400">
+                    <AlertTriangleIcon className="w-12 h-12 mx-auto mb-3"/>
+                    <p className="font-semibold mb-2">Error</p>
                     <p className="text-sm">{error}</p>
+                    {error.includes('FFmpeg is not installed') && (
+                        <div className="text-xs text-left bg-red-50 dark:bg-red-900/20 p-3 rounded-lg mt-4">
+                            <p className="font-semibold mb-2">Install FFmpeg:</p>
+                            <ul className="list-disc list-inside space-y-1 text-left">
+                                <li>Windows: <code className="bg-red-100 dark:bg-red-900 px-1 rounded">choco install ffmpeg</code></li>
+                                <li>Mac: <code className="bg-red-100 dark:bg-red-900 px-1 rounded">brew install ffmpeg</code></li>
+                                <li>Linux: <code className="bg-red-100 dark:bg-red-900 px-1 rounded">apt-get install ffmpeg</code></li>
+                            </ul>
+                        </div>
+                    )}
                 </div>
             ) : outputUrl ? (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-4">

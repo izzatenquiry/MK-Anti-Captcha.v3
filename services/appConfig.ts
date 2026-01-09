@@ -5,8 +5,8 @@
 import { isElectron } from './environment';
 
 export const APP_VERSION = isElectron() 
-  ? 'MK_Anti_Captcha_PC_Version_V1' 
-  : 'MK-Anti-Captcha.v2';
+  ? 'MK_Anti_Captcha_PC_V1' 
+  : 'MK_Anti_Captcha_WEB_V1';
 
 /**
  * Get Bot Admin API base URL

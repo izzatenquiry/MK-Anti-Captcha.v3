@@ -57,6 +57,14 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
     // Token Ultra Status State
     const [ultraRegistration, setUltraRegistration] = useState<TokenUltraRegistration | null>(null);
     const [isLoadingUltra, setIsLoadingUltra] = useState(false);
+
+    // Helper function to check if Token Ultra is active
+    const isTokenUltraActive = useCallback((): boolean => {
+        if (!ultraRegistration) return false;
+        const expiresAt = new Date(ultraRegistration.expires_at);
+        const now = new Date();
+        return ultraRegistration.status === 'active' && expiresAt > now;
+    }, [ultraRegistration]);
     
     // Server State
     const [currentServer, setCurrentServer] = useState<string | null>(null);
@@ -619,14 +627,19 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
                         )}
 
                         <div className="space-y-3">
-                            <button onClick={handleOpenFlow} className="w-full flex items-center justify-center gap-2 bg-green-600 dark:bg-green-700 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-green-700 dark:hover:bg-green-600 transition-colors">
-                                <KeyIcon className="w-4 h-4" />
-                                Login Google Flow
-                            </button>
-                            <button onClick={handleGetToken} className="w-full flex items-center justify-center gap-2 bg-blue-600 dark:bg-blue-700 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-blue-700 transition-colors">
-                                <KeyIcon className="w-4 h-4" />
-                                Get Token
-                            </button>
+                            {/* Hide "Login Google Flow" and "Get Token" buttons if Token Ultra is active */}
+                            {!isTokenUltraActive() && (
+                                <>
+                                    <button onClick={handleOpenFlow} className="w-full flex items-center justify-center gap-2 bg-green-600 dark:bg-green-700 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-green-700 dark:hover:bg-green-600 transition-colors">
+                                        <KeyIcon className="w-4 h-4" />
+                                        Login Google Flow
+                                    </button>
+                                    <button onClick={handleGetToken} className="w-full flex items-center justify-center gap-2 bg-blue-600 dark:bg-blue-700 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-blue-700 transition-colors">
+                                        <KeyIcon className="w-4 h-4" />
+                                        Get Token
+                                    </button>
+                                </>
+                            )}
                             <button onClick={handleGetNewToken} disabled={isLoadingToken || !currentUser} className="w-full flex items-center justify-center gap-2 bg-purple-600 dark:bg-purple-700 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-purple-700 dark:hover:bg-purple-600 transition-colors disabled:opacity-50">
                                 {isLoadingToken ? (
                                     <>

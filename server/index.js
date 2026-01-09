@@ -471,6 +471,118 @@ app.post('/api/imagen/upload', async (req, res) => {
   }
 });
 
+// ========== NANOBANANA 2 ENDPOINTS ==========
+// ===============================
+
+// 🍌 GENERATE IMAGE (NANOBANANA 2 / GEM_PIX_2)
+app.post('/api/nanobanana/generate', async (req, res) => {
+  log('log', req, '\n🍌 ===== [NANOBANANA 2] GENERATE IMAGE =====');
+  try {
+    const authToken = req.headers.authorization?.replace('Bearer ', '');
+    if (!authToken) {
+      log('error', req, '❌ No auth token provided');
+      return res.status(401).json({ error: 'No auth token provided' });
+    }
+
+    // Extract projectId from request body
+    const projectId = req.body.requests?.[0]?.clientContext?.projectId;
+    if (!projectId) {
+      log('error', req, '❌ No projectId in request');
+      return res.status(400).json({ error: 'No projectId in request' });
+    }
+
+    log('log', req, '📤 Forwarding to NANOBANANA 2 API...');
+    log('log', req, '📦 Request body:', JSON.stringify(req.body, null, 2));
+
+    // Log reCAPTCHA token presence for debugging
+    if (req.body.clientContext?.recaptchaToken || req.body.requests?.[0]?.clientContext?.recaptchaToken) {
+      log('log', req, '🔐 reCAPTCHA token present in request');
+    } else {
+      log('log', req, '⚠️  No reCAPTCHA token in request');
+    }
+
+    // Build endpoint URL with projectId
+    const endpoint = `${VEO_API_BASE}/projects/${projectId}/flowMedia:batchGenerateImages`;
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+        'Origin': 'https://labs.google',
+        'Referer': 'https://labs.google/'
+      },
+      body: JSON.stringify(req.body)
+    });
+
+    const data = await getJson(response, req);
+    log('log', req, '📨 Response status:', response.status);
+    
+    if (!response.ok) {
+      log('error', req, '❌ NANOBANANA 2 API Error:', data);
+      return res.status(response.status).json(data);
+    }
+
+    log('log', req, '✅ [NANOBANANA 2] Success - Generated:', data.media?.length || 0, 'image(s)');
+    log('log', req, '=========================================\n');
+    res.json(data);
+  } catch (error) {
+    log('error', req, '❌ Proxy error (NANOBANANA 2 GENERATE):', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===============================
+// 📥 DOWNLOAD IMAGE (CORS BYPASS for NANOBANANA 2)
+// ===============================
+app.get('/api/nanobanana/download-image', async (req, res) => {
+  log('log', req, '\n📥 ===== [NANOBANANA 2] IMAGE DOWNLOAD =====');
+  try {
+    const imageUrl = req.query.url;
+    
+    if (!imageUrl || typeof imageUrl !== 'string') {
+      log('error', req, '❌ No URL provided');
+      return res.status(400).json({ error: 'Image URL is required' });
+    }
+
+    log('log', req, '📥 Image URL:', imageUrl);
+    log('log', req, '📥 Fetching and streaming from Google Storage...');
+
+    const response = await fetch(imageUrl);
+    
+    if (!response.ok) {
+      log('error', req, '❌ Failed to fetch image:', response.status, response.statusText);
+      const errorBody = await response.text();
+      return res.status(response.status).json({ error: `Failed to download: ${response.statusText}`, details: errorBody });
+    }
+
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const contentLength = response.headers.get('content-length');
+
+    log('log', req, '📥 Content-Type:', contentType);
+    log('log', req, '📥 Content-Length:', contentLength);
+
+    // Set headers for image download
+    res.setHeader('Content-Type', contentType);
+    if (contentLength) {
+      res.setHeader('Content-Length', contentLength);
+    }
+    res.setHeader('Content-Disposition', `attachment; filename="nanobanana2-${Date.now()}.jpg"`);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET');
+
+    // Stream the image data
+    const imageBuffer = await response.arrayBuffer();
+    res.send(Buffer.from(imageBuffer));
+
+    log('log', req, '✅ [NANOBANANA 2] Image download successful');
+    log('log', req, '=========================================\n');
+  } catch (error) {
+    log('error', req, '❌ Proxy error (NANOBANANA 2 IMAGE DOWNLOAD):', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ===============================
 // 📥 DOWNLOAD VIDEO (CORS BYPASS)
 // ===============================
@@ -667,6 +779,9 @@ app.listen(PORT, '0.0.0.0', () => {
   logSystem('   POST /api/imagen/generate');
   logSystem('   POST /api/imagen/run-recipe');
   logSystem('   POST /api/imagen/upload');
+  logSystem('📋 NANOBANANA 2 Endpoints:');
+  logSystem('   POST /api/nanobanana/generate');
+  logSystem('   GET  /api/nanobanana/download-image');
   logSystem('📋 VIDEO Endpoints:');
   logSystem('   POST /api/video/combine');
   logSystem('===================================\n');

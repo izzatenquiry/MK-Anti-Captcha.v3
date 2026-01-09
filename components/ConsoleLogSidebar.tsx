@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import eventBus from '../services/eventBus';
-import { XIcon, TrashIcon, TerminalIcon } from './Icons';
+import { XIcon, TrashIcon, TerminalIcon, EyeIcon, EyeOffIcon } from './Icons';
 import { getTranslations } from '../services/translations';
 
 interface LogEntry {
@@ -17,6 +17,7 @@ interface ConsoleLogSidebarProps {
 
 const ConsoleLogSidebar: React.FC<ConsoleLogSidebarProps> = ({ isOpen, onClose }) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [showDebugLogs, setShowDebugLogs] = useState(false); // Default: hide debug logs
   const logContainerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const T = getTranslations().consoleLogSidebar;
@@ -46,6 +47,11 @@ const ConsoleLogSidebar: React.FC<ConsoleLogSidebarProps> = ({ isOpen, onClose }
     return () => container.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Filter logs based on showDebugLogs toggle
+  const filteredLogs = showDebugLogs 
+    ? logs 
+    : logs.filter(log => log.level !== 'debug');
+
   // Auto-scroll to bottom when new logs arrive (only if user hasn't scrolled up)
   useEffect(() => {
     if (logContainerRef.current && shouldAutoScrollRef.current) {
@@ -55,7 +61,7 @@ const ConsoleLogSidebar: React.FC<ConsoleLogSidebarProps> = ({ isOpen, onClose }
         container.scrollTop = container.scrollHeight;
       });
     }
-  }, [logs]);
+  }, [filteredLogs]);
 
   const clearLogs = () => setLogs([]);
 
@@ -103,6 +109,21 @@ const ConsoleLogSidebar: React.FC<ConsoleLogSidebarProps> = ({ isOpen, onClose }
                 </div>
                 <div className="flex gap-2">
                     <button 
+                        onClick={() => setShowDebugLogs(!showDebugLogs)} 
+                        className={`p-2 rounded-full transition-colors ${
+                            showDebugLogs 
+                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' 
+                            : 'bg-neutral-100 dark:bg-white/5 text-neutral-600 dark:text-neutral-400'
+                        } hover:bg-neutral-200 dark:hover:bg-white/10 hover:text-neutral-900 dark:hover:text-white`}
+                        title={showDebugLogs ? "Hide Debug Logs" : "Show Debug Logs"}
+                    >
+                        {showDebugLogs ? (
+                            <EyeOffIcon className="w-4 h-4" />
+                        ) : (
+                            <EyeIcon className="w-4 h-4" />
+                        )}
+                    </button>
+                    <button 
                         onClick={clearLogs} 
                         className="p-2 rounded-full bg-neutral-100 dark:bg-white/5 hover:bg-neutral-200 dark:hover:bg-white/10 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white transition-colors"
                         title="Clear"
@@ -123,13 +144,13 @@ const ConsoleLogSidebar: React.FC<ConsoleLogSidebarProps> = ({ isOpen, onClose }
                 ref={logContainerRef} 
                 className="flex-1 overflow-y-auto custom-scrollbar bg-neutral-50 dark:bg-black/40 rounded-2xl border-[0.5px] border-neutral-200/80 dark:border-white/5 p-3 sm:p-4 space-y-2 min-h-0"
             >
-                {logs.length === 0 ? (
+                {filteredLogs.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center text-neutral-400 dark:text-neutral-600">
                         <TerminalIcon className="w-12 h-12 mb-3 opacity-20" />
                         <p className="text-xs italic">Console output will appear here.</p>
                     </div>
                 ) : (
-                    logs.map((log, index) => (
+                    filteredLogs.map((log, index) => (
                         <div key={index} className={`p-3 rounded-xl border-[0.5px] text-[10px] sm:text-xs font-mono break-words ${getLevelColor(log.level)}`}>
                             <div className="flex justify-between items-center opacity-70 mb-1">
                                 <span className="font-bold uppercase tracking-wider">{log.level}</span>

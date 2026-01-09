@@ -7,6 +7,7 @@ import ProductReviewView from './ProductReviewView';
 import Tabs, { type Tab } from '../common/Tabs';
 import { type BatchProcessorPreset, type User, type Language } from '../../types';
 import BatchProcessorView from './BatchProcessorView';
+import { isElectron, isLocalhost } from '../../services/environment';
 
 
 type TabId = 'generation' | 'storyboard' | 'batch' | 'combiner' | 'voice';
@@ -34,11 +35,14 @@ interface AiVideoSuiteViewProps {
 const AiVideoSuiteView: React.FC<AiVideoSuiteViewProps> = ({ preset, clearPreset, onReEdit, onCreateVideo, currentUser, onUserUpdate, language }) => {
     const [activeTab, setActiveTab] = useState<TabId>('generation');
 
+    // Check if Video Combiner should be visible (localhost or Electron only)
+    const showVideoCombiner = isElectron() || isLocalhost();
+
     const tabs: Tab<TabId>[] = [
         { id: 'generation', label: "Video Generation" },
         { id: 'storyboard', label: "Video Storyboard" },
         { id: 'batch', label: "Batch Processing", adminOnly: true },
-        { id: 'combiner', label: "Video Combiner", adminOnly: true },
+        ...(showVideoCombiner ? [{ id: 'combiner' as TabId, label: "Video Combiner" }] : []),
         { id: 'voice', label: "Voice Studio" }
     ];
 
@@ -49,10 +53,15 @@ const AiVideoSuiteView: React.FC<AiVideoSuiteViewProps> = ({ preset, clearPreset
     }, [preset]);
     
     useEffect(() => {
-        if (currentUser.role !== 'admin' && (activeTab === 'batch' || activeTab === 'combiner')) {
+        // If user is not admin and tries to access admin-only tabs, redirect
+        if (currentUser.role !== 'admin' && activeTab === 'batch') {
             setActiveTab('generation');
         }
-    }, [currentUser.role, activeTab]);
+        // If Video Combiner is not available and user is on that tab, redirect
+        if (!showVideoCombiner && activeTab === 'combiner') {
+            setActiveTab('generation');
+        }
+    }, [currentUser.role, activeTab, showVideoCombiner]);
 
     const renderActiveTabContent = () => {
         switch (activeTab) {

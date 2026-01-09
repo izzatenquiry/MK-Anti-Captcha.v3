@@ -2,13 +2,14 @@
 import React, { useState, useEffect } from 'react';
 import ImageEnhancerView from './ImageEnhancerView';
 import ImageGenerationView from './ImageGenerationView';
+import Nanobanana2GenerationView from './Nanobanana2GenerationView';
 import BackgroundRemoverView from './BackgroundRemoverView';
 import ProductPhotoView from './ProductPhotoView';
 import TiktokAffiliateView from './TiktokAffiliateView';
 import Tabs, { type Tab } from '../common/Tabs';
 import { type Language, type User } from '../../types';
 
-type TabId = 'generation' | 'enhancer' | 'remover' | 'product' | 'model';
+type TabId = 'generation' | 'nanobanana' | 'enhancer' | 'remover' | 'product' | 'model';
 
 interface VideoGenPreset {
   prompt: string;
@@ -37,6 +38,7 @@ const AiImageSuiteView: React.FC<AiImageSuiteViewProps> = ({ onCreateVideo, onRe
 
     const tabs: Tab<TabId>[] = [
         { id: 'generation', label: "Image Generation" },
+        { id: 'nanobanana', label: "NANOBANANA PRO" },
         { id: 'product', label: "Product Photos" },
         { id: 'model', label: "Model Photos" },
         { id: 'enhancer', label: "Enhancer" },
@@ -60,6 +62,14 @@ const AiImageSuiteView: React.FC<AiImageSuiteViewProps> = ({ onCreateVideo, onRe
         switch (activeTab) {
             case 'generation':
                 return <ImageGenerationView 
+                          {...commonProps} 
+                          imageToReEdit={imageToReEdit} 
+                          clearReEdit={clearReEdit}
+                          presetPrompt={presetPrompt}
+                          clearPresetPrompt={clearPresetPrompt} 
+                        />;
+            case 'nanobanana':
+                return <Nanobanana2GenerationView 
                           {...commonProps} 
                           imageToReEdit={imageToReEdit} 
                           clearReEdit={clearReEdit}

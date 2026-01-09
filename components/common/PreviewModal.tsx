@@ -59,27 +59,27 @@ const PreviewModal: React.FC<PreviewModalProps> = ({ item, onClose, getDisplayUr
         )}
 
       <div
-        className="relative bg-neutral-950 rounded-lg shadow-2xl p-4 w-full max-w-5xl max-h-[90vh] flex flex-col"
+        className="relative bg-neutral-950 rounded-lg shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()} // Prevent closing when clicking on the content
       >
         <button
           onClick={onClose}
-          className="absolute -top-5 -right-5 bg-white text-black rounded-full p-2 hover:scale-110 transition-transform z-10 shadow-lg"
+          className="absolute top-4 right-4 bg-white text-black rounded-full p-2 hover:scale-110 transition-transform z-20 shadow-lg"
           aria-label={T.closePreview}
         >
           <XIcon className="w-6 h-6" />
         </button>
 
-        <div className="flex-1 flex items-center justify-center min-h-0">
+        <div className="flex-1 flex items-center justify-center min-h-0 h-full">
           {isImage && (
-            <img src={displayUrl} alt={item.prompt} className="max-w-full max-h-full object-contain rounded-md" />
+            <img src={displayUrl} alt={item.prompt} className="w-full h-full object-contain rounded-md" />
           )}
           {isVideo && displayUrl && (
-            <video src={displayUrl} controls autoPlay className="max-w-full max-h-full object-contain rounded-md" />
+            <video src={displayUrl} controls autoPlay className="w-full h-full object-contain rounded-md" />
           )}
         </div>
         
-        <div className="flex-shrink-0 mt-4 text-center">
+        <div className="flex-shrink-0 p-4 text-center border-t border-neutral-800">
             <p className="text-white text-sm line-clamp-2">{item.prompt}</p>
         </div>
       </div>

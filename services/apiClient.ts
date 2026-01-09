@@ -59,6 +59,31 @@ export const getImagenProxyUrl = (): string => {
   return 'https://s1.monoklix.com';
 };
 
+export const getNanobanana2ProxyUrl = (): string => {
+  const localhostUrl = getLocalhostServerUrl();
+  
+  // Electron: always localhost
+  if (isElectron()) {
+    return localhostUrl;
+  }
+  
+  // Web: selection logic (same as Veo/Imagen)
+  if (isLocalhost()) {
+    const userSelectedProxy = sessionStorage.getItem('selectedProxyServer');
+    if (!userSelectedProxy || userSelectedProxy === localhostUrl) {
+      return localhostUrl;
+    }
+    return userSelectedProxy;
+  }
+  
+  // Not on localhost - use user selection or default
+  const userSelectedProxy = sessionStorage.getItem('selectedProxyServer');
+  if (userSelectedProxy) {
+    return userSelectedProxy;
+  }
+  return 'https://s1.monoklix.com';
+};
+
 const getPersonalTokenLocal = (): { token: string; createdAt: string; } | null => {
     try {
         const userJson = localStorage.getItem('currentUser');
@@ -259,7 +284,7 @@ const getRecaptchaToken = async (projectId?: string, onStatusUpdate?: (status: s
 
 export const executeProxiedRequest = async (
   relativePath: string,
-  serviceType: 'veo' | 'imagen',
+  serviceType: 'veo' | 'imagen' | 'nanobanana',
   requestBody: any,
   logContext: string,
   specificToken?: string,
@@ -273,25 +298,40 @@ export const executeProxiedRequest = async (
   }
   
   // Use override URL if provided, otherwise default to standard proxy selection
-  const currentServerUrl = overrideServerUrl || (serviceType === 'veo' ? getVeoProxyUrl() : getImagenProxyUrl());
+  let currentServerUrl: string;
+  if (overrideServerUrl) {
+    currentServerUrl = overrideServerUrl;
+  } else if (serviceType === 'veo') {
+    currentServerUrl = getVeoProxyUrl();
+  } else if (serviceType === 'imagen') {
+    currentServerUrl = getImagenProxyUrl();
+  } else if (serviceType === 'nanobanana') {
+    currentServerUrl = getNanobanana2ProxyUrl();
+  } else {
+    throw new Error(`Unknown service type: ${serviceType}`);
+  }
   
-  // 1. Get reCAPTCHA token if needed (only for Veo GENERATE requests and health checks, not for UPLOAD or Imagen)
+  // 1. Get reCAPTCHA token if needed (only for Veo and NANOBANANA 2 GENERATE requests and health checks, not for UPLOAD or Imagen)
   const isGenerationRequest = logContext.includes('GENERATE') || logContext.includes('RECIPE') || logContext.includes('UPLOAD') || logContext.includes('HEALTH CHECK');
-  // For reCAPTCHA: only GENERATE and HEALTH CHECK for Veo (exclude UPLOAD)
-  const needsRecaptcha = (logContext.includes('GENERATE') || logContext.includes('HEALTH CHECK')) && serviceType === 'veo';
+  // For reCAPTCHA: only GENERATE and HEALTH CHECK for Veo and NANOBANANA 2 (exclude UPLOAD)
+  const needsRecaptcha = (logContext.includes('GENERATE') || logContext.includes('HEALTH CHECK')) && (serviceType === 'veo' || serviceType === 'nanobanana');
   let recaptchaToken: string | null = null;
 
-  // Only get reCAPTCHA token for Veo GENERATE requests, not for UPLOAD or Imagen
+  // Only get reCAPTCHA token for Veo and NANOBANANA 2 GENERATE requests, not for UPLOAD or Imagen
   if (needsRecaptcha) {
     // Extract projectId from request body if exists (MUST match for Google API validation)
-    const projectIdFromBody = requestBody.clientContext?.projectId;
+    // For NANOBANANA 2, projectId is in requests[0].clientContext.projectId
+    const projectIdFromBody = requestBody.clientContext?.projectId || requestBody.requests?.[0]?.clientContext?.projectId;
 
     recaptchaToken = await getRecaptchaToken(projectIdFromBody, onStatusUpdate);
 
     // Inject reCAPTCHA token into request body if available
-    if (recaptchaToken && requestBody.clientContext) {
-      requestBody.clientContext.recaptchaToken = recaptchaToken;
-      requestBody.clientContext.sessionId = requestBody.clientContext.sessionId || `;${Date.now()}`;
+    // Same for Veo and NANOBANANA 2 - only inject in top level clientContext
+    if (recaptchaToken) {
+      if (requestBody.clientContext) {
+        requestBody.clientContext.recaptchaToken = recaptchaToken;
+        requestBody.clientContext.sessionId = requestBody.clientContext.sessionId || `;${Date.now()}`;
+      }
       console.log('[API Client] ✅ Injected reCAPTCHA token into request body');
     } else {
       console.error('[API Client] ❌ Failed to get reCAPTCHA token - request will proceed without token');

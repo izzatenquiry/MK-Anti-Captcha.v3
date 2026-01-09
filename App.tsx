@@ -31,6 +31,7 @@ import SuiteLayout from './components/common/SuiteLayout';
 import ServerSelectionModal from './components/common/ServerSelectionModal';
 import { isElectron, isLocalhost } from './services/environment';
 import { APP_VERSION } from './services/appConfig';
+import { getServerUrl } from './services/serverConfig';
 
 // ... (Keep existing Interfaces VideoGenPreset, ImageEditPreset etc.)
 interface VideoGenPreset {
@@ -76,6 +77,8 @@ const App: React.FC = () => {
   const [showServerModal, setShowServerModal] = useState(false);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [tokenUltraMessage, setTokenUltraMessage] = useState<string | null>(null);
+  const [serverStatus, setServerStatus] = useState<'operational' | 'checking' | 'offline'>('checking');
+  const [lastHealthCheck, setLastHealthCheck] = useState<number | null>(null);
   
   const T = getTranslations().app;
 
@@ -300,6 +303,92 @@ const App: React.FC = () => {
     }
   }, [currentUser, activeApiKey]);
 
+  // Check server health status
+  const checkServerHealth = useCallback(async () => {
+    try {
+        const currentServerUrl = getServerUrl();
+        
+        // Check if server has /health endpoint (localhost:3001 has it)
+        const isLocalhostServer = currentServerUrl.includes('localhost:3001');
+        
+        if (isLocalhostServer) {
+            // For localhost server, check /health endpoint
+            const response = await fetch(`${currentServerUrl}/health`, {
+                method: 'GET',
+                signal: AbortSignal.timeout(3000) // 3 second timeout
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    setServerStatus('operational');
+                    setLastHealthCheck(Date.now());
+                } else {
+                    setServerStatus('offline');
+                }
+            } else {
+                setServerStatus('offline');
+            }
+        } else {
+            // For production servers, try to check with a lightweight endpoint
+            // We'll try to ping the server with a simple request
+            try {
+                const response = await fetch(`${currentServerUrl}/api/veo/status`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({}),
+                    signal: AbortSignal.timeout(3000)
+                });
+                
+                // If we get any response (even error), server is reachable
+                // We consider it operational if server responds
+                if (response.status === 401 || response.status === 400) {
+                    // Server is reachable (401 = no auth, 400 = bad request, but server is up)
+                    setServerStatus('operational');
+                    setLastHealthCheck(Date.now());
+                } else if (response.ok) {
+                    setServerStatus('operational');
+                    setLastHealthCheck(Date.now());
+                } else {
+                    setServerStatus('offline');
+                }
+            } catch (error) {
+                // Server not reachable
+                setServerStatus('offline');
+            }
+        }
+    } catch (error) {
+        setServerStatus('offline');
+    }
+  }, []);
+
+  // Auto-check server health on mount and periodically
+  useEffect(() => {
+    // Initial check
+    checkServerHealth();
+    
+    // Check periodically
+    const interval = setInterval(() => {
+        checkServerHealth();
+    }, 30000); // Check every 30 seconds
+    
+    return () => clearInterval(interval);
+  }, [checkServerHealth]);
+
+  // Listen for server changes and re-check
+  useEffect(() => {
+    const handleServerChange = () => {
+        setServerStatus('checking');
+        checkServerHealth();
+    };
+    
+    eventBus.on('serverChanged', handleServerChange);
+    return () => {
+        eventBus.remove('serverChanged', handleServerChange);
+    };
+  }, [checkServerHealth]);
 
   // --- VIEW RENDERING WITH NEW LAYOUT ---
   const renderView = () => {
@@ -430,12 +519,30 @@ const App: React.FC = () => {
                     <div className="flex items-center gap-3 ml-auto">
                         
                         {/* Operational Status */}
-                        <div className="hidden md:flex items-center gap-2 text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/20 px-3 py-1.5 rounded-full border-[0.5px] border-green-300/80 dark:border-green-500/20">
+                        <div className={`hidden md:flex items-center gap-2 text-[10px] font-bold px-3 py-1.5 rounded-full border-[0.5px] transition-colors ${
+                            serverStatus === 'operational' 
+                                ? 'text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/20 border-green-300/80 dark:border-green-500/20'
+                                : serverStatus === 'checking'
+                                ? 'text-yellow-600 dark:text-yellow-400 bg-yellow-100 dark:bg-yellow-900/20 border-yellow-300/80 dark:border-yellow-500/20'
+                                : 'text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/20 border-red-300/80 dark:border-red-500/20'
+                        }`}>
                             <span className="relative flex h-2 w-2">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 dark:bg-green-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                                {serverStatus === 'operational' && (
+                                    <>
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 dark:bg-green-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                                    </>
+                                )}
+                                {serverStatus === 'checking' && (
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-500 animate-pulse"></span>
+                                )}
+                                {serverStatus === 'offline' && (
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                                )}
                             </span>
-                            OPERATIONAL
+                            {serverStatus === 'operational' && 'OPERATIONAL'}
+                            {serverStatus === 'checking' && 'CHECKING...'}
+                            {serverStatus === 'offline' && 'OFFLINE'}
                         </div>
 
                         <div className="h-4 w-px bg-neutral-300 dark:bg-white/10 hidden md:block"></div>
