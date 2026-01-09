@@ -4,7 +4,7 @@ import { type User } from '../types';
 import { supabase } from './supabaseClient';
 import { PROXY_SERVER_URLS, getLocalhostServerUrl } from './serverConfig';
 import { solveCaptcha } from './antiCaptchaService';
-import { hasActiveTokenUltra, getMasterRecaptchaToken, updateUserProxyServer } from './userService';
+import { hasActiveTokenUltra, hasActiveTokenUltraWithRegistration, getMasterRecaptchaToken, updateUserProxyServer } from './userService';
 import { isElectron, isLocalhost } from './environment';
 
 export const getVeoProxyUrl = (): string => {
@@ -146,35 +146,71 @@ const getRecaptchaToken = async (projectId?: string, onStatusUpdate?: (status: s
             return null;
         }
 
-        let apiKey = '';
+        // Default: Use personal token from users.recaptcha_token
+        let apiKey = currentUser.recaptchaToken || '';
+
+        // Check Token Ultra registration status
+        // Try to get from cache first
+        const cachedReg = sessionStorage.getItem(`token_ultra_registration_${currentUser.id}`);
+        let tokenUltraReg: any = null;
         
-        // Check sessionStorage first for cached token ultra status
-        // Two types of users:
-        // 1. Token Ultra users (active) - use master recaptcha token
-        // 2. Normal User (no active Token Ultra) - use their own recaptcha token
-        const cachedUltraStatus = sessionStorage.getItem(`token_ultra_active_${currentUser.id}`);
-        const isActiveUltra = cachedUltraStatus === 'true';
-        
-        if (isActiveUltra) {
-            // Type 1: Token Ultra user - Use master recaptcha token from sessionStorage
-            const cachedMasterToken = sessionStorage.getItem('master_recaptcha_token');
-            if (cachedMasterToken && cachedMasterToken.trim()) {
-                apiKey = cachedMasterToken;
-                console.log('[API Client] Using cached master recaptcha token (Token Ultra user)');
-            } else {
-                // Fallback: try to fetch if not cached (shouldn't happen if initSystem worked)
-                console.warn('[API Client] Master token not in cache, fetching...');
-                const masterTokenResult = await getMasterRecaptchaToken();
-                if (masterTokenResult.success && masterTokenResult.apiKey) {
-                    apiKey = masterTokenResult.apiKey;
+        if (cachedReg) {
+            try {
+                tokenUltraReg = JSON.parse(cachedReg);
+            } catch (e) {
+                console.warn('[API Client] Failed to parse cached registration', e);
+            }
+        }
+
+        // If not in cache, fetch from database
+        if (!tokenUltraReg) {
+            const ultraResult = await hasActiveTokenUltraWithRegistration(currentUser.id);
+            if (ultraResult.isActive && ultraResult.registration) {
+                tokenUltraReg = ultraResult.registration;
+            }
+        }
+
+        // If Token Ultra is active, check allow_master_token from registration
+        if (tokenUltraReg) {
+            const expiresAt = new Date(tokenUltraReg.expires_at);
+            const now = new Date();
+            const isActive = tokenUltraReg.status === 'active' && expiresAt > now;
+
+            if (isActive) {
+                // Token Ultra is active - check allow_master_token from token_ultra_registrations
+                // null/undefined = true (default), false = block master token
+                const isBlockedFromMaster = tokenUltraReg.allow_master_token === false;
+
+                if (!isBlockedFromMaster) {
+                    // Token Ultra active + NOT blocked → Use master token
+                    const cachedMasterToken = sessionStorage.getItem('master_recaptcha_token');
+                    if (cachedMasterToken && cachedMasterToken.trim()) {
+                        apiKey = cachedMasterToken;
+                        console.log('[API Client] Using master recaptcha token (Token Ultra user)');
+                    } else {
+                        // Fallback: try to fetch if not cached
+                        console.warn('[API Client] Master token not in cache, fetching...');
+                        const masterTokenResult = await getMasterRecaptchaToken();
+                        if (masterTokenResult.success && masterTokenResult.apiKey) {
+                            apiKey = masterTokenResult.apiKey;
+                            console.log('[API Client] Using master recaptcha token (Token Ultra user - fetched)');
+                        } else {
+                            console.warn('[API Client] Master token fetch failed, falling back to user token');
+                            apiKey = currentUser.recaptchaToken || '';
+                        }
+                    }
                 } else {
-                    console.warn('[API Client] Master token fetch failed, falling back to user token');
+                    // Token Ultra active but BLOCKED from master token → Use personal token
                     apiKey = currentUser.recaptchaToken || '';
+                    console.log('[API Client] Using personal recaptcha token (Token Ultra user - master token blocked)');
                 }
+            } else {
+                // Token Ultra expired/inactive → Use personal token
+                apiKey = currentUser.recaptchaToken || '';
+                console.log('[API Client] Using user\'s own recaptcha token (Token Ultra expired)');
             }
         } else {
-            // Type 2: Normal User - Use their own recaptcha token
-            apiKey = currentUser.recaptchaToken || '';
+            // Normal User (no Token Ultra) → Use personal token
             if (apiKey) {
                 console.log('[API Client] Using user\'s own recaptcha token (Normal User)');
             }
@@ -182,7 +218,7 @@ const getRecaptchaToken = async (projectId?: string, onStatusUpdate?: (status: s
 
         if (!apiKey.trim()) {
             console.error('[API Client] ❌ Anti-Captcha enabled but no API key configured', {
-                isActiveUltra,
+                hasTokenUltra: !!tokenUltraReg,
                 hasUserToken: !!currentUser.recaptchaToken
             });
             return null;

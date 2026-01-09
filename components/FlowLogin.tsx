@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { saveUserPersonalAuthToken, saveUserRecaptchaToken, hasActiveTokenUltra, getMasterRecaptchaToken, getTokenUltraRegistration, getEmailFromPoolByCode, getUserProfile } from '../services/userService';
+import { saveUserPersonalAuthToken, saveUserRecaptchaToken, hasActiveTokenUltra, hasActiveTokenUltraWithRegistration, getMasterRecaptchaToken, getTokenUltraRegistration, getEmailFromPoolByCode, getUserProfile } from '../services/userService';
 import { type User, type TokenUltraRegistration } from '../types';
 import { KeyIcon, CheckCircleIcon, XIcon, AlertTriangleIcon, InformationCircleIcon, EyeIcon, EyeOffIcon, SparklesIcon, ClipboardIcon, ServerIcon, UserIcon, ClockIcon, VideoIcon, PlayIcon } from './Icons';
 import Spinner from './common/Spinner';
@@ -105,27 +105,70 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
         }
         
         const resolveAntiCaptchaKey = async () => {
-            const cachedUltraStatus = sessionStorage.getItem(`token_ultra_active_${currentUser.id}`);
-            if (cachedUltraStatus === 'true') {
-                const cachedMasterToken = sessionStorage.getItem('master_recaptcha_token');
-                if (cachedMasterToken && cachedMasterToken.trim()) {
-                    setAntiCaptchaApiKey(cachedMasterToken);
-                    return;
-                }
-                
-                const masterTokenResult = await getMasterRecaptchaToken();
-                if (masterTokenResult.success && masterTokenResult.apiKey) {
-                    setAntiCaptchaApiKey(masterTokenResult.apiKey);
-                    return;
-                }
-            }
+            // Default: Use personal token
+            let apiKey = currentUser.recaptchaToken || '';
+
+            // Check Token Ultra registration status
+            // Try to get from cache first
+            const cachedReg = sessionStorage.getItem(`token_ultra_registration_${currentUser.id}`);
+            let tokenUltraReg: any = null;
             
-            if (currentUser.recaptchaToken) {
-                setAntiCaptchaApiKey(currentUser.recaptchaToken);
-                return;
+            if (cachedReg) {
+                try {
+                    tokenUltraReg = JSON.parse(cachedReg);
+                } catch (e) {
+                    console.warn('[FlowLogin] Failed to parse cached registration', e);
+                }
             }
 
-            setAntiCaptchaApiKey('');
+            // If not in cache, fetch from database
+            if (!tokenUltraReg) {
+                const ultraResult = await hasActiveTokenUltraWithRegistration(currentUser.id);
+                if (ultraResult.isActive && ultraResult.registration) {
+                    tokenUltraReg = ultraResult.registration;
+                }
+            }
+
+            // If Token Ultra is active, check allow_master_token from registration
+            if (tokenUltraReg) {
+                const expiresAt = new Date(tokenUltraReg.expires_at);
+                const now = new Date();
+                const isActive = tokenUltraReg.status === 'active' && expiresAt > now;
+
+                if (isActive) {
+                    // Token Ultra is active - check allow_master_token from token_ultra_registrations
+                    // null/undefined = true (default), false = block master token
+                    const isBlockedFromMaster = tokenUltraReg.allow_master_token === false;
+
+                    if (!isBlockedFromMaster) {
+                        // Token Ultra active + NOT blocked → Use master token
+                        const cachedMasterToken = sessionStorage.getItem('master_recaptcha_token');
+                        if (cachedMasterToken && cachedMasterToken.trim()) {
+                            apiKey = cachedMasterToken;
+                        } else {
+                            // Fallback: try to fetch if not cached
+                            const masterTokenResult = await getMasterRecaptchaToken();
+                            if (masterTokenResult.success && masterTokenResult.apiKey) {
+                                apiKey = masterTokenResult.apiKey;
+                            } else {
+                                // Fallback to personal token
+                                apiKey = currentUser.recaptchaToken || '';
+                            }
+                        }
+                    } else {
+                        // Token Ultra active but BLOCKED from master token → Use personal token
+                        apiKey = currentUser.recaptchaToken || '';
+                    }
+                } else {
+                    // Token Ultra expired/inactive → Use personal token
+                    apiKey = currentUser.recaptchaToken || '';
+                }
+            } else {
+                // Normal User (no Token Ultra) → Use personal token
+                apiKey = currentUser.recaptchaToken || '';
+            }
+
+            setAntiCaptchaApiKey(apiKey);
         };
         
         resolveAntiCaptchaKey();
@@ -191,12 +234,32 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
     useEffect(() => {
         if (isInitialMount.current || !currentUser || !antiCaptchaApiKey.trim()) return;
 
-        const isUnchanged = async () => {
-            const cachedUltraStatus = sessionStorage.getItem(`token_ultra_active_${currentUser.id}`);
-            if (cachedUltraStatus === 'true') {
-                const cachedMasterToken = sessionStorage.getItem('master_recaptcha_token');
-                return antiCaptchaApiKey.trim() === (cachedMasterToken || '');
+        // CRITICAL: Don't auto-save if Token Ultra active and NOT blocked (using master token)
+        // User should not be able to edit master token
+        const cachedReg = sessionStorage.getItem(`token_ultra_registration_${currentUser.id}`);
+        let tokenUltraReg: any = null;
+        
+        if (cachedReg) {
+            try {
+                tokenUltraReg = JSON.parse(cachedReg);
+            } catch (e) {
+                console.warn('[FlowLogin] Failed to parse cached registration for auto-save check', e);
             }
+        }
+
+        if (tokenUltraReg) {
+            const expiresAt = new Date(tokenUltraReg.expires_at);
+            const now = new Date();
+            const isActive = tokenUltraReg.status === 'active' && expiresAt > now;
+            const isBlockedFromMaster = tokenUltraReg.allow_master_token === false;
+            
+            if (isActive && !isBlockedFromMaster) {
+                // Using master token - don't auto-save user edits
+                return;
+            }
+        }
+
+        const isUnchanged = async () => {
             return antiCaptchaApiKey.trim() === (currentUser.recaptchaToken || '');
         };
 
@@ -556,6 +619,14 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
                         )}
 
                         <div className="space-y-3">
+                            <button onClick={handleOpenFlow} className="w-full flex items-center justify-center gap-2 bg-green-600 dark:bg-green-700 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-green-700 dark:hover:bg-green-600 transition-colors">
+                                <KeyIcon className="w-4 h-4" />
+                                Login Google Flow
+                            </button>
+                            <button onClick={handleGetToken} className="w-full flex items-center justify-center gap-2 bg-blue-600 dark:bg-blue-700 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-blue-700 transition-colors">
+                                <KeyIcon className="w-4 h-4" />
+                                Get Token
+                            </button>
                             <button onClick={handleGetNewToken} disabled={isLoadingToken || !currentUser} className="w-full flex items-center justify-center gap-2 bg-purple-600 dark:bg-purple-700 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-purple-700 dark:hover:bg-purple-600 transition-colors disabled:opacity-50">
                                 {isLoadingToken ? (
                                     <>
@@ -574,6 +645,13 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
                                 )}
                             </button>
                             <button onClick={handleTestToken} disabled={(!flowToken.trim() && !currentUser?.personalAuthToken) || testStatus === 'testing'} className="w-full flex items-center justify-center gap-2 bg-blue-600 dark:bg-blue-700 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">{testStatus === 'testing' ? <Spinner /> : <SparklesIcon className="w-4 h-4" />}Health Test</button>
+                            <button
+                                onClick={() => setIsVideoModalOpen(true)}
+                                className="w-full flex items-center justify-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                            >
+                                <PlayIcon className="w-4 h-4" />
+                                Video Tutorial Login Google Flow
+                            </button>
                         </div>
 
                         {/* Generated Token Output */}
@@ -708,14 +786,69 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
                             <div>
                                 <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">Anti-Captcha API Key</label>
                                 <div className="relative">
-                                    <input type={showAntiCaptchaKey ? 'text' : 'password'} value={antiCaptchaApiKey} onChange={(e) => setAntiCaptchaApiKey(e.target.value)} placeholder="Enter your anti-captcha.com API key" className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg p-2.5 pr-10 focus:ring-2 focus:ring-primary-500 font-mono text-sm" />
-                                    <div className="absolute inset-y-0 right-0 flex items-center gap-2 pr-2">
-                                        {recaptchaTokenSaved && antiCaptchaApiKey.trim() && <span className="text-xs text-green-600 dark:text-green-400 font-medium">Saved</span>}
-                                        {isSavingRecaptcha && <Spinner />}
-                                        <button onClick={() => setShowAntiCaptchaKey(!showAntiCaptchaKey)} className="px-3 flex items-center text-neutral-500 hover:text-neutral-700">
-                                            {showAntiCaptchaKey ? <EyeOffIcon className="w-4 h-4"/> : <EyeIcon className="w-4 h-4"/>}
-                                        </button>
-                                    </div>
+                                    {/* Check if Token Ultra active and NOT blocked - show read-only with message */}
+                                    {(() => {
+                                        // Check if using master token from token_ultra_registrations
+                                        const cachedReg = sessionStorage.getItem(`token_ultra_registration_${currentUser.id}`);
+                                        let tokenUltraReg: any = null;
+                                        
+                                        if (cachedReg) {
+                                            try {
+                                                tokenUltraReg = JSON.parse(cachedReg);
+                                            } catch (e) {
+                                                // Ignore parse errors
+                                            }
+                                        }
+                                        
+                                        const isUsingMasterToken = tokenUltraReg && 
+                                            tokenUltraReg.status === 'active' && 
+                                            new Date(tokenUltraReg.expires_at) > new Date() &&
+                                            tokenUltraReg.allow_master_token !== false;
+                                        
+                                        if (isUsingMasterToken) {
+                                            return (
+                                                <>
+                                                    <div className="w-full bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-2.5 pr-10 text-blue-800 dark:text-blue-200 cursor-not-allowed">
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <InformationCircleIcon className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                                                            <span className="text-xs font-semibold">Master Token (Read-only)</span>
+                                                        </div>
+                                                        <div className="text-xs font-mono truncate">
+                                                            {showAntiCaptchaKey ? antiCaptchaApiKey : '•'.repeat(Math.min(antiCaptchaApiKey.length, 32))}
+                                                        </div>
+                                                    </div>
+                                                    <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                                                        <button 
+                                                            onClick={() => setShowAntiCaptchaKey(!showAntiCaptchaKey)} 
+                                                            className="text-blue-600 dark:text-blue-400 p-1 cursor-pointer" 
+                                                            title="Toggle visibility"
+                                                        >
+                                                            {showAntiCaptchaKey ? <EyeOffIcon className="w-4 h-4"/> : <EyeIcon className="w-4 h-4"/>}
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            );
+                                        }
+                                        
+                                        return (
+                                            <>
+                                                <input 
+                                                    type={showAntiCaptchaKey ? 'text' : 'password'} 
+                                                    value={antiCaptchaApiKey} 
+                                                    onChange={(e) => setAntiCaptchaApiKey(e.target.value)} 
+                                                    placeholder="Enter your anti-captcha.com API key" 
+                                                    className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg p-2.5 pr-10 focus:ring-2 focus:ring-primary-500 font-mono text-sm" 
+                                                />
+                                                <div className="absolute inset-y-0 right-0 flex items-center gap-2 pr-2">
+                                                    {recaptchaTokenSaved && antiCaptchaApiKey.trim() && <span className="text-xs text-green-600 dark:text-green-400 font-medium">Saved</span>}
+                                                    {isSavingRecaptcha && <Spinner />}
+                                                    <button onClick={() => setShowAntiCaptchaKey(!showAntiCaptchaKey)} className="px-3 flex items-center text-neutral-500 hover:text-neutral-700">
+                                                        {showAntiCaptchaKey ? <EyeOffIcon className="w-4 h-4"/> : <EyeIcon className="w-4 h-4"/>}
+                                                    </button>
+                                                </div>
+                                            </>
+                                        );
+                                    })()}
                                 </div>
                                 <p className="text-xs text-neutral-500 mt-1">Token is auto-saved upon change.</p>
                             </div>

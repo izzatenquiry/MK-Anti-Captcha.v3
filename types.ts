@@ -120,6 +120,7 @@ export interface TokenUltraRegistration {
   registered_at: string;
   expires_at: string;
   status: 'active' | 'expired' | 'expiring_soon';
+  allow_master_token: boolean | null; // null/undefined = true (default), false = block master token
   created_at: string;
   updated_at: string;
 }

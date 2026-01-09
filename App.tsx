@@ -12,7 +12,7 @@ import { GalleryView } from './components/views/GalleryView';
 import WelcomeAnimation from './components/WelcomeAnimation';
 import { RefreshCwIcon, TerminalIcon, SunIcon, MoonIcon, AlertTriangleIcon, CheckCircleIcon, XIcon, SparklesIcon, MenuIcon } from './components/Icons';
 import { createPortal } from 'react-dom';
-import { signOutUser, logActivity, getVeoAuthTokens, getSharedMasterApiKey, updateUserLastSeen, assignPersonalTokenAndIncrementUsage, saveUserPersonalAuthToken, updateUserProxyServer, getAvailableServersForUser, getDeviceOS, getServerUsageCounts, getUserProfile, getMasterRecaptchaToken, hasActiveTokenUltra } from './services/userService';
+import { signOutUser, logActivity, getVeoAuthTokens, getSharedMasterApiKey, updateUserLastSeen, assignPersonalTokenAndIncrementUsage, saveUserPersonalAuthToken, updateUserProxyServer, getAvailableServersForUser, getDeviceOS, getServerUsageCounts, getUserProfile, getMasterRecaptchaToken, hasActiveTokenUltra, hasActiveTokenUltraWithRegistration } from './services/userService';
 import Spinner from './components/common/Spinner';
 import { loadData, saveData } from './services/indexedDBService';
 import { GetStartedView } from './components/views/GetStartedView';
@@ -163,7 +163,7 @@ const App: React.FC = () => {
               if (freshUser) {
                   // If the DB has a token but local doesn't, or they differ, update local.
                   if (freshUser.personalAuthToken !== currentUser.personalAuthToken) {
-                      console.log('[Auto-Sync] Syncing newer token from DB to local session.');
+                      console.log('[Auto-Sync] Syncing user data from DB to local session.');
                       handleUserUpdate(freshUser);
                   }
                   // Also update status or other fields if they changed
@@ -254,25 +254,33 @@ const App: React.FC = () => {
             const isUltraCacheValid = cachedUltraStatus && ultraCacheAge < 5 * 60 * 1000; // 5 minutes
             
             if (!isCacheValid || !isUltraCacheValid) {
-                hasActiveTokenUltra(currentUser.id).then(isActive => {
-                    if (isActive) {
-                        // User has active Token Ultra - load master token
-                        if (!isCacheValid) {
-                            console.log('[App] User has active Token Ultra registration - loading master recaptcha token');
+                hasActiveTokenUltraWithRegistration(currentUser.id).then(result => {
+                    if (result.isActive && result.registration) {
+                        // User has active Token Ultra - cache registration data and load master token if needed
+                        // Cache registration data with allow_master_token
+                        sessionStorage.setItem(`token_ultra_registration_${currentUser.id}`, JSON.stringify(result.registration));
+                        console.log('[App] User has active Token Ultra registration - cached registration data', {
+                            allow_master_token: result.registration.allow_master_token
+                        });
+                        
+                        // Load master token if user can use it (allow_master_token != false)
+                        if (result.registration.allow_master_token !== false && !isCacheValid) {
+                            console.log('[App] User can use master token - loading master recaptcha token');
                             // Load master token once and cache in sessionStorage
-                            getMasterRecaptchaToken().then(result => {
-                                if (result.success && result.apiKey) {
+                            getMasterRecaptchaToken().then(masterResult => {
+                                if (masterResult.success && masterResult.apiKey) {
                                     console.log('[App] ✅ Master recaptcha token loaded and cached for session');
                                 } else {
                                     console.warn('[App] ⚠️ Master recaptcha token not found');
                                 }
                             });
+                        } else if (result.registration.allow_master_token === false) {
+                            console.log('[App] User blocked from using master token - will use personal token');
                         }
                     } else {
                         // Normal User (no active Token Ultra) - use their own recaptcha token
-                        // Set status to 'false' in sessionStorage for clarity
-                        sessionStorage.setItem(`token_ultra_active_${currentUser.id}`, 'false');
-                        sessionStorage.setItem(`token_ultra_active_timestamp_${currentUser.id}`, Date.now().toString());
+                        // Clear any cached registration data
+                        sessionStorage.removeItem(`token_ultra_registration_${currentUser.id}`);
                         console.log('[App] Normal User - will use their own recaptcha token');
                     }
                 });

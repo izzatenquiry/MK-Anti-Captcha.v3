@@ -4,7 +4,7 @@ import { KeyIcon, CheckCircleIcon, XIcon, AlertTriangleIcon, RefreshCwIcon, Spar
 import Spinner from './common/Spinner';
 import { runApiHealthCheck, type HealthCheckResult } from '../services/geminiService';
 import { type User, type Language } from '../types';
-import { saveUserPersonalAuthToken, saveUserRecaptchaToken, assignPersonalTokenAndIncrementUsage, getUserProfile, hasActiveTokenUltra, getMasterRecaptchaToken } from '../services/userService';
+import { saveUserPersonalAuthToken, saveUserRecaptchaToken, assignPersonalTokenAndIncrementUsage, getUserProfile, hasActiveTokenUltra, hasActiveTokenUltraWithRegistration, getTokenUltraRegistration, getMasterRecaptchaToken } from '../services/userService';
 import { runComprehensiveTokenTest, type TokenTestResult } from '../services/imagenV3Service';
 import { getTranslations } from '../services/translations';
 import eventBus from '../services/eventBus';
@@ -272,30 +272,83 @@ const ApiKeyStatus: React.FC<ApiKeyStatusProps> = ({ activeApiKey, currentUser, 
     const [isTokenUltraActive, setIsTokenUltraActive] = useState(false);
     
     // REFACTOR: Use a single unified source of truth for Anti-Captcha key display
+    // Now checks allow_master_token from token_ultra_registrations instead of users table
     useEffect(() => {
         const resolveKey = async () => {
-            if (!currentUser) return;
-            
-            // Priority 1: Check if "Token Ultra" is active for THIS user
-            const cachedUltraStatus = sessionStorage.getItem(`token_ultra_active_${currentUser.id}`);
-            const isActive = cachedUltraStatus === 'true';
-            setIsTokenUltraActive(isActive);
-            
-            if (isActive) {
-                const cachedMasterToken = sessionStorage.getItem('master_recaptcha_token');
-                if (cachedMasterToken && cachedMasterToken.trim()) {
-                    setAntiCaptchaApiKey(cachedMasterToken);
-                    return;
-                }
-            }
-            
-            // Priority 2: Use user's own token from prop (most reactive)
-            if (currentUser.recaptchaToken) {
-                setAntiCaptchaApiKey(currentUser.recaptchaToken);
+            if (!currentUser) {
+                setIsTokenUltraActive(false);
+                setAntiCaptchaApiKey('');
                 return;
             }
+            
+            // Default: Use personal token
+            let apiKey = currentUser.recaptchaToken || '';
+            let usingMasterToken = false;
 
-            setAntiCaptchaApiKey('');
+            // Check Token Ultra registration status
+            // Try to get from cache first
+            const cachedReg = sessionStorage.getItem(`token_ultra_registration_${currentUser.id}`);
+            let tokenUltraReg: any = null;
+            
+            if (cachedReg) {
+                try {
+                    tokenUltraReg = JSON.parse(cachedReg);
+                } catch (e) {
+                    console.warn('[ApiKeyStatus] Failed to parse cached registration', e);
+                }
+            }
+
+            // If not in cache, fetch from database
+            if (!tokenUltraReg) {
+                const ultraResult = await hasActiveTokenUltraWithRegistration(currentUser.id);
+                if (ultraResult.isActive && ultraResult.registration) {
+                    tokenUltraReg = ultraResult.registration;
+                }
+            }
+
+            // If Token Ultra is active, check allow_master_token from registration
+            if (tokenUltraReg) {
+                const expiresAt = new Date(tokenUltraReg.expires_at);
+                const now = new Date();
+                const isActive = tokenUltraReg.status === 'active' && expiresAt > now;
+
+                if (isActive) {
+                    // Token Ultra is active - check allow_master_token from token_ultra_registrations
+                    // null/undefined = true (default), false = block master token
+                    const isBlockedFromMaster = tokenUltraReg.allow_master_token === false;
+
+                    if (!isBlockedFromMaster) {
+                        // Token Ultra active + NOT blocked → Use master token
+                        const cachedMasterToken = sessionStorage.getItem('master_recaptcha_token');
+                        if (cachedMasterToken && cachedMasterToken.trim()) {
+                            apiKey = cachedMasterToken;
+                            usingMasterToken = true;
+                        } else {
+                            // Fallback: try to fetch if not cached
+                            const masterTokenResult = await getMasterRecaptchaToken();
+                            if (masterTokenResult.success && masterTokenResult.apiKey) {
+                                apiKey = masterTokenResult.apiKey;
+                                usingMasterToken = true;
+                            } else {
+                                // Fallback to personal token
+                                apiKey = currentUser.recaptchaToken || '';
+                            }
+                        }
+                    } else {
+                        // Token Ultra active but BLOCKED from master token → Use personal token
+                        apiKey = currentUser.recaptchaToken || '';
+                    }
+                } else {
+                    // Token Ultra expired/inactive → Use personal token
+                    apiKey = currentUser.recaptchaToken || '';
+                }
+            } else {
+                // Normal User (no Token Ultra) → Use personal token
+                apiKey = currentUser.recaptchaToken || '';
+            }
+
+            setAntiCaptchaApiKey(apiKey);
+            setIsTokenUltraActive(usingMasterToken);
         };
         
         resolveKey();
@@ -521,13 +574,16 @@ const ApiKeyStatus: React.FC<ApiKeyStatusProps> = ({ activeApiKey, currentUser, 
                                 {/* 4. Anti-Captcha */}
                                 <div className="p-3 bg-neutral-100 dark:bg-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 min-h-[52px]">
                                     {isTokenUltraActive ? (
-                                        // Token Ultra Active - Show disabled field with notice inside
+                                        // Token Ultra Active + NOT blocked - Show read-only field with master token value
                                         <div className="space-y-2">
                                             <span className="font-semibold text-neutral-700 dark:text-neutral-300 block">Anti-Captcha API Key:</span>
                                             <div className="relative">
                                                 <div className="w-full text-xs font-mono bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded p-2.5 pr-10 text-blue-800 dark:text-blue-200 cursor-not-allowed flex items-center gap-2">
                                                     <InformationCircleIcon className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />
-                                                    <span className="flex-1">Using master token (Token Ultra active). Edit in Settings → Anti-Captcha Configuration</span>
+                                                    <span className="flex-1 truncate">
+                                                        {showAntiCaptchaKey ? antiCaptchaApiKey : '•'.repeat(Math.min(antiCaptchaApiKey.length, 32))}
+                                                    </span>
+                                                    <span className="text-[10px] text-blue-600 dark:text-blue-400 flex-shrink-0 ml-1">(Master Token)</span>
                                                 </div>
                                                 {antiCaptchaApiKey && (
                                                     <button 
@@ -539,6 +595,7 @@ const ApiKeyStatus: React.FC<ApiKeyStatusProps> = ({ activeApiKey, currentUser, 
                                                     </button>
                                                 )}
                                             </div>
+                                            <p className="text-[10px] text-blue-600 dark:text-blue-400">Using master token (Token Ultra active). This field is read-only.</p>
                                         </div>
                                     ) : isEditingAntiCaptcha ? (
                                         <div className="space-y-3">

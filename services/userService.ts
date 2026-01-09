@@ -368,7 +368,7 @@ export const getTokenUltraRegistration = async (
   try {
     const { data, error } = await supabase
       .from('token_ultra_registrations')
-      .select('id, email_code, expires_at, status, registered_at')
+      .select('id, email_code, expires_at, status, registered_at, allow_master_token')
       .eq('user_id', userId)
       .order('registered_at', { ascending: false })
       .limit(1)
@@ -556,18 +556,46 @@ export const getEmailFromPoolByCode = async (emailCode: string): Promise<{ succe
  * Check if user has active token ultra registration
  * Cached in sessionStorage for performance
  */
+/**
+ * Check if a user has an active Token Ultra subscription
+ * Cached in sessionStorage for performance
+ * Returns boolean for backward compatibility
+ */
 export const hasActiveTokenUltra = async (userId: string, forceRefresh: boolean = false): Promise<boolean> => {
+  const result = await hasActiveTokenUltraWithRegistration(userId, forceRefresh);
+  return result.isActive;
+};
+
+/**
+ * Check if a user has an active Token Ultra subscription and return registration
+ * Cached in sessionStorage for performance
+ * Returns the registration object if active, null otherwise
+ */
+export const hasActiveTokenUltraWithRegistration = async (
+  userId: string, 
+  forceRefresh: boolean = false
+): Promise<{ isActive: boolean; registration: TokenUltraRegistration | null }> => {
   try {
     // Check cache first
     if (!forceRefresh) {
       const cached = sessionStorage.getItem(`token_ultra_active_${userId}`);
       const cachedTimestamp = sessionStorage.getItem(`token_ultra_active_timestamp_${userId}`);
+      const cachedReg = sessionStorage.getItem(`token_ultra_registration_${userId}`);
       
       if (cached !== null && cachedTimestamp) {
         const cacheAge = Date.now() - parseInt(cachedTimestamp, 10);
         // Cache valid for 2 minutes
         if (cacheAge < 2 * 60 * 1000) {
-          return cached === 'true';
+          const isActive = cached === 'true';
+          let registration: TokenUltraRegistration | null = null;
+          if (cachedReg && isActive) {
+            try {
+              registration = JSON.parse(cachedReg);
+            } catch (e) {
+              console.warn('Failed to parse cached registration', e);
+            }
+          }
+          return { isActive, registration };
         }
       }
     }
@@ -577,11 +605,12 @@ export const hasActiveTokenUltra = async (userId: string, forceRefresh: boolean 
       // Cache negative result
       sessionStorage.setItem(`token_ultra_active_${userId}`, 'false');
       sessionStorage.setItem(`token_ultra_active_timestamp_${userId}`, Date.now().toString());
-      return false;
+      sessionStorage.removeItem(`token_ultra_registration_${userId}`);
+      return { isActive: false, registration: null };
     }
     
     // Check if registration is active and not expired
-    const registration = result.registration;
+    const registration = result.registration as TokenUltraRegistration;
     const expiresAt = new Date(registration.expires_at);
     const now = new Date();
     
@@ -590,11 +619,16 @@ export const hasActiveTokenUltra = async (userId: string, forceRefresh: boolean 
     // Cache the result
     sessionStorage.setItem(`token_ultra_active_${userId}`, isActive ? 'true' : 'false');
     sessionStorage.setItem(`token_ultra_active_timestamp_${userId}`, Date.now().toString());
+    if (isActive && registration) {
+      sessionStorage.setItem(`token_ultra_registration_${userId}`, JSON.stringify(registration));
+    } else {
+      sessionStorage.removeItem(`token_ultra_registration_${userId}`);
+    }
     
-    return isActive;
+    return { isActive, registration: isActive ? registration : null };
   } catch (error) {
     console.error('Error checking active token ultra:', error);
-    return false;
+    return { isActive: false, registration: null };
   }
 };
 
