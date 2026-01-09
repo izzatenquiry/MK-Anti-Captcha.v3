@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { getContent } from '../../services/contentService';
 import { getTotalPlatformUsage } from '../../services/userService';
 import { type TutorialContent, type User, type Language, type View } from '../../types';
-import { ImageIcon, VideoIcon, TrendingUpIcon, WandIcon, FileTextIcon, ChevronRightIcon } from '../Icons';
+import { ImageIcon, VideoIcon, TrendingUpIcon, WandIcon, FileTextIcon, ChevronRightIcon, PlayIcon } from '../Icons';
 
 interface DashboardViewProps {
     currentUser: User;
@@ -24,6 +24,48 @@ const DashboardView: React.FC<DashboardViewProps> = ({ currentUser, navigateTo }
     };
     fetchPageData();
   }, []);
+
+  // Extract YouTube video ID and generate thumbnail URL
+  const getYouTubeThumbnail = (url: string): string | null => {
+    if (!url) return null;
+    
+    // Extract video ID from various YouTube URL formats
+    const patterns = [
+      /(?:youtube\.com\/embed\/|youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/,
+      /youtube\.com\/embed\/([^&\n?#]+)/,
+    ];
+    
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match && match[1]) {
+        return `https://img.youtube.com/vi/${match[1]}/maxresdefault.jpg`;
+      }
+    }
+    
+    return null;
+  };
+
+  // Get video URL for opening in new tab
+  const getVideoUrl = (url: string): string => {
+    if (!url) return '#';
+    
+    // Convert embed URL to watch URL if needed
+    if (url.includes('youtube.com/embed/')) {
+      const videoId = url.match(/embed\/([^?&]+)/)?.[1];
+      if (videoId) {
+        return `https://www.youtube.com/watch?v=${videoId}`;
+      }
+    }
+    
+    return url;
+  };
+
+  const handleVideoClick = () => {
+    if (content?.mainVideoUrl) {
+      const videoUrl = getVideoUrl(content.mainVideoUrl);
+      window.open(videoUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
 
   const QuickActionCard = ({ title, desc, icon: Icon, color, onClick, delay }: any) => (
       <button 
@@ -109,15 +151,33 @@ const DashboardView: React.FC<DashboardViewProps> = ({ currentUser, navigateTo }
         {content?.mainVideoUrl && (
             <div className="w-full animate-zoomIn h-full" style={{ animationDelay: '50ms' }}>
                 <div className="nav-capsule p-1 rounded-3xl overflow-hidden shadow-2xl border border-white/10 relative group h-full">
-                    <div className="relative aspect-video w-full bg-black rounded-[1.2rem] overflow-hidden">
-                        <iframe 
-                            src={content.mainVideoUrl} 
-                            title="Get Started"
-                            className="w-full h-full"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                            allowFullScreen
-                        ></iframe>
-                    </div>
+                    <button
+                        onClick={handleVideoClick}
+                        className="relative aspect-video w-full bg-black rounded-[1.2rem] overflow-hidden cursor-pointer group/btn hover:scale-[1.02] transition-transform duration-300"
+                    >
+                        {getYouTubeThumbnail(content.mainVideoUrl) ? (
+                            <>
+                                <img 
+                                    src={getYouTubeThumbnail(content.mainVideoUrl)!} 
+                                    alt="Get Started Video"
+                                    className="w-full h-full object-cover"
+                                />
+                                {/* Play Button Overlay */}
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover/btn:bg-black/30 transition-colors">
+                                    <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-white/90 dark:bg-white/80 flex items-center justify-center shadow-2xl group-hover/btn:scale-110 transition-transform">
+                                        <PlayIcon className="w-8 h-8 md:w-10 md:h-10 text-neutral-900 ml-1" />
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-neutral-800 to-neutral-900">
+                                <div className="text-center">
+                                    <VideoIcon className="w-16 h-16 text-white/50 mx-auto mb-4" />
+                                    <p className="text-white/70 text-sm">Click to watch video</p>
+                                </div>
+                            </div>
+                        )}
+                    </button>
                 </div>
             </div>
         )}

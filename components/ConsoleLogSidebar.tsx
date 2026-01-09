@@ -5,7 +5,7 @@ import { XIcon, TrashIcon, TerminalIcon } from './Icons';
 import { getTranslations } from '../services/translations';
 
 interface LogEntry {
-  level: 'log' | 'warn' | 'error' | 'debug';
+  level: 'log' | 'warn' | 'error' | 'debug' | 'success';
   message: string;
   timestamp: Date;
 }
@@ -64,6 +64,7 @@ const ConsoleLogSidebar: React.FC<ConsoleLogSidebarProps> = ({ isOpen, onClose }
           case 'error': return 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800/50';
           case 'warn': return 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800/50';
           case 'debug': return 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800/50';
+          case 'success': return 'text-green-700 dark:text-green-300 bg-green-100/60 dark:bg-green-900/30 border-green-300/50 dark:border-green-700/50';
           default: return 'text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800/50 border-neutral-200 dark:border-white/5';
       }
   };

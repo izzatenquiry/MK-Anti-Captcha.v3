@@ -7,6 +7,7 @@ import { APP_VERSION } from './appConfig';
 import { v4 as uuidv4 } from 'uuid';
 import { getProxyServers } from './contentService';
 import { PROXY_SERVER_URLS, getLocalhostServerUrl } from './serverConfig';
+import { isElectron, isLocalhost } from './environment';
 import { resetEmailCodeFromUser } from './flowAccountService';
 
 // FIX: Correctly reference the 'users' table as defined in the Supabase types.
@@ -1085,6 +1086,12 @@ export const saveUserApiKey = async (userId: string, apiKey: string): Promise<{ 
 };
 
 export const getAvailableServersForUser = async (user: User): Promise<string[]> => {
+    // Electron: only localhost
+    if (isElectron()) {
+        return [getLocalhostServerUrl()];
+    }
+    
+    // Web: full server list with logic
     let availableServers = PROXY_SERVER_URLS;
 
     // Admin gets dynamic list from DB if possible, otherwise falls back to static list
@@ -1107,7 +1114,7 @@ export const getAvailableServersForUser = async (user: User): Promise<string[]> 
 
     // Only add localhost server if running on localhost (for development)
     // For webbase users, exclude localhost server
-    if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    if (isLocalhost()) {
         const localhostUrl = getLocalhostServerUrl();
         if (!availableServers.includes(localhostUrl)) {
             availableServers = [localhostUrl, ...availableServers];
@@ -1207,6 +1214,12 @@ export const updateUserLastSeen = async (userId: string): Promise<void> => {
 };
 
 export const getServerUsageCounts = async (): Promise<Record<string, number>> => {
+    // Electron: return empty (no server selection needed)
+    if (isElectron()) {
+        return {};
+    }
+    
+    // Web: get actual usage counts
     const fortyFiveMinutesAgo = new Date(Date.now() - 45 * 60 * 1000).toISOString();
     // FIX: Use the correct table name 'users'.
     const { data, error } = await supabase
@@ -1231,6 +1244,12 @@ export const getServerUsageCounts = async (): Promise<Record<string, number>> =>
 };
 
 export const updateUserProxyServer = async (userId: string, serverUrl: string | null): Promise<boolean> => {
+    // Electron: no-op (tidak perlu update DB)
+    if (isElectron()) {
+        return true;
+    }
+    
+    // Web: update DB
     // FIX: Use the correct table name 'users'.
     const { error } = await supabase
         .from('users')

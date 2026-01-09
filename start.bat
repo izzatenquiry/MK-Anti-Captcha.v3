@@ -1,24 +1,34 @@
 @echo off
+REM Change to the script's directory
+cd /d "%~dp0"
+
 echo ========================================
-echo   MONOKLIX - Starting Server and App
+echo   MONOKLIX - Starting All Services
 echo ========================================
+echo.
+echo Current directory: %CD%
 echo.
 
 REM Start server in a new window (from server folder)
-start "MONOKLIX Server" cmd /k "cd server && node index.js"
+echo [*] Starting Node.js Server...
+start "MONOKLIX Server" cmd /k "cd /d %~dp0server && node index.js"
 
 REM Wait a moment for server to start
 timeout /t 2 /nobreak >nul
 
 REM Start app in a new window
-start "MONOKLIX App" cmd /k "npm run dev"
+echo [*] Starting React App...
+start "MONOKLIX App" cmd /k "cd /d %~dp0 && npm run dev"
 
 echo.
-echo [OK] Server and App are starting in separate windows...
+echo ========================================
+echo [OK] All services are starting...
+echo ========================================
 echo.
-echo Server: Running on separate window (node index.js)
-echo App: Running on separate window (npm run dev)
+echo Token Generator: https://api.monoklix.com (Centralized)
+echo Node.js Server:  Running on separate window
+echo React App:       Running on separate window
 echo.
-echo Press any key to close this window (this will NOT stop the server/app)
+echo Press any key to close this window (this will NOT stop the services)
 pause >nul
 

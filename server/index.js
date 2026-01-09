@@ -1,6 +1,25 @@
 import express from 'express';
 import cors from 'cors';
 import fetch from 'node-fetch';
+import multer from 'multer';
+import { createWriteStream, unlinkSync, readFileSync, writeFileSync, existsSync } from 'fs';
+import { join, resolve } from 'path';
+import { tmpdir } from 'os';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+
+const execAsync = promisify(exec);
+
+// Get FFmpeg path - use bundled version if available, fallback to system 'ffmpeg'
+let ffmpegPath = 'ffmpeg'; // Default fallback
+try {
+  ffmpegPath = ffmpegInstaller.path;
+  console.log(`✅ Using bundled FFmpeg: ${ffmpegPath}`);
+} catch (e) {
+  console.log('⚠️ Bundled FFmpeg not found, falling back to system FFmpeg');
+  ffmpegPath = 'ffmpeg';
+}
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -88,6 +107,7 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Apple devices preflight fix
 app.options('*', cors());
@@ -511,6 +531,118 @@ app.get('/api/veo/download-video', async (req, res) => {
 });
 
 // ===============================
+// ========== VIDEO COMBINER ENDPOINT ==========
+// ===============================
+
+// Configure multer for file uploads
+const upload = multer({ 
+  dest: tmpdir(),
+  limits: { fileSize: 500 * 1024 * 1024 } // 500MB limit per file
+});
+
+// 🎬 COMBINE VIDEOS (Server-side using FFmpeg)
+app.post('/api/video/combine', upload.array('videos', 10), async (req, res) => {
+  log('log', req, '\n🎬 ===== [VIDEO COMBINER] COMBINE VIDEOS =====');
+  
+  const tempFiles = [];
+  const outputPath = join(tmpdir(), `combined-${Date.now()}.mp4`);
+  
+  try {
+    if (!req.files || req.files.length < 2) {
+      log('error', req, '❌ Need at least 2 videos to combine');
+      return res.status(400).json({ error: 'Need at least 2 videos to combine' });
+    }
+
+    log('log', req, `📦 Received ${req.files.length} video files`);
+
+    // Check if FFmpeg is available
+    try {
+      await execAsync(`"${ffmpegPath}" -version`);
+    } catch (e) {
+      log('error', req, '❌ FFmpeg is not available');
+      
+      // Cleanup uploaded files
+      req.files.forEach(file => {
+        try { unlinkSync(file.path); } catch (e) {}
+      });
+      
+      return res.status(503).json({ 
+        error: 'FFmpeg is not available. Please ensure FFmpeg is bundled with the application.',
+        suggestion: 'FFmpeg should be bundled with the application. If this error persists, please contact support.'
+      });
+    }
+
+    // Use FFmpeg concat filter instead of concat demuxer for better Windows compatibility
+    // Build input arguments for all video files
+    const inputArgs = [];
+    
+    req.files.forEach((file) => {
+      tempFiles.push(file.path);
+      const filePathNormalized = resolve(file.path).replace(/\\/g, '/');
+      inputArgs.push(`-i "${filePathNormalized}"`);
+    });
+    
+    // Create concat filter: [0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]
+    // This concatenates video and audio streams from all inputs
+    const numInputs = req.files.length;
+    const filterInputLabels = Array.from({ length: numInputs }, (_, i) => `[${i}:v][${i}:a]`).join('');
+    const concatFilter = `${filterInputLabels}concat=n=${numInputs}:v=1:a=1[v][a]`;
+    
+    // Build FFmpeg command using concat filter (more reliable on Windows)
+    const outputPathNormalized = resolve(outputPath).replace(/\\/g, '/');
+    const ffmpegCommand = `"${ffmpegPath}" ${inputArgs.join(' ')} -filter_complex "${concatFilter}" -map "[v]" -map "[a]" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 192k -y "${outputPathNormalized}"`;
+    
+    tempFiles.push(outputPath);
+
+    log('log', req, '🔄 Combining videos with FFmpeg (using concat filter)...');
+    log('log', req, 'Number of videos:', req.files.length);
+    log('log', req, 'FFmpeg command (truncated):', ffmpegCommand.substring(0, 300) + '...');
+    
+    try {
+      const { stdout, stderr } = await execAsync(ffmpegCommand);
+      log('log', req, '✅ Video combination successful');
+      if (stderr) log('log', req, 'FFmpeg output:', stderr);
+    } catch (ffmpegError) {
+      log('error', req, '❌ FFmpeg error:', ffmpegError);
+      throw new Error(`FFmpeg failed: ${ffmpegError.message}`);
+    }
+
+    // Check if output file exists
+    if (!existsSync(outputPath)) {
+      throw new Error('Combined video file was not created');
+    }
+
+    // Read the combined video file
+    const videoBuffer = readFileSync(outputPath);
+    
+    // Cleanup temp files
+    tempFiles.forEach(file => {
+      try { unlinkSync(file); } catch (e) {}
+    });
+
+    log('log', req, `✅ Combined video size: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+    log('log', req, '=========================================\n');
+
+    // Send video as response
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', `attachment; filename="combined-${Date.now()}.mp4"`);
+    res.send(videoBuffer);
+
+  } catch (error) {
+    log('error', req, '❌ Video combine error:', error);
+    
+    // Cleanup on error
+    tempFiles.forEach(file => {
+      try { unlinkSync(file); } catch (e) {}
+    });
+    
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message || 'Video combination failed' });
+    }
+  }
+});
+
+// ===============================
 // 🚀 SERVER START
 // ===============================
 app.listen(PORT, '0.0.0.0', () => {
@@ -535,5 +667,7 @@ app.listen(PORT, '0.0.0.0', () => {
   logSystem('   POST /api/imagen/generate');
   logSystem('   POST /api/imagen/run-recipe');
   logSystem('   POST /api/imagen/upload');
+  logSystem('📋 VIDEO Endpoints:');
+  logSystem('   POST /api/video/combine');
   logSystem('===================================\n');
 });

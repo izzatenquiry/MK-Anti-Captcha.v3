@@ -380,29 +380,29 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, tempApiKey, on
     const [activeTab, setActiveTab] = useState<SettingsTabId>('profile');
     const [isTokenUltraActive, setIsTokenUltraActive] = useState(false);
     
-    // Check Token Ultra status
+    // Check Token Ultra status only once after login
     useEffect(() => {
         const checkTokenUltraStatus = async () => {
             if (!currentUser) return;
             
-            // Check sessionStorage first for cached status
-            const cachedStatus = sessionStorage.getItem(`token_ultra_active_${currentUser.id}`);
-            const cachedTimestamp = sessionStorage.getItem(`token_ultra_active_timestamp_${currentUser.id}`);
+            // Check if we've already checked for this user in this session
+            const checkKey = `token_ultra_checked_${currentUser.id}`;
+            const alreadyChecked = sessionStorage.getItem(checkKey);
             
-            let isActive = false;
-            
-            if (cachedStatus === 'true' && cachedTimestamp) {
-                const cacheAge = Date.now() - parseInt(cachedTimestamp, 10);
-                // Cache valid for 2 minutes
-                if (cacheAge < 2 * 60 * 1000) {
-                    isActive = true;
-                }
+            // Only check once per session (after login)
+            if (alreadyChecked) {
+                // Use cached status from hasActiveTokenUltra
+                const cached = sessionStorage.getItem(`token_ultra_active_${currentUser.id}`);
+                const isActive = cached === 'true';
+                setIsTokenUltraActive(isActive);
+                return;
             }
             
-            // If not cached or cache expired, check with API
-            if (!isActive && cachedStatus !== 'true') {
-                isActive = await hasActiveTokenUltra(currentUser.id);
-            }
+            // Mark as checked
+            sessionStorage.setItem(checkKey, 'true');
+            
+            // Use hasActiveTokenUltra which has built-in cache logic
+            const isActive = await hasActiveTokenUltra(currentUser.id, false);
             
             setIsTokenUltraActive(isActive);
             
@@ -418,18 +418,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, tempApiKey, on
         };
         
         checkTokenUltraStatus();
-        
-        // Listen for user updates that might change Token Ultra status
-        const handleUserUpdate = () => {
-            checkTokenUltraStatus();
-        };
-        
-        // Check periodically (every 30 seconds) to catch status changes
-        const interval = setInterval(checkTokenUltraStatus, 30000);
-        
-        return () => {
-            clearInterval(interval);
-        };
     }, [currentUser?.id]);
     
     const tabs = getTabs(isTokenUltraActive);

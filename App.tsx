@@ -29,6 +29,8 @@ import UgcGeneratorView from './components/views/UgcGenView';
 import AdminSuiteView from './components/views/AdminSuiteView';
 import SuiteLayout from './components/common/SuiteLayout';
 import ServerSelectionModal from './components/common/ServerSelectionModal';
+import { isElectron, isLocalhost } from './services/environment';
+import { APP_VERSION } from './services/appConfig';
 
 // ... (Keep existing Interfaces VideoGenPreset, ImageEditPreset etc.)
 interface VideoGenPreset {
@@ -128,7 +130,10 @@ const App: React.FC = () => {
   }, []);
 
   const handleLogout = useCallback(async () => {
-    if (currentUser) updateUserProxyServer(currentUser.id, null);
+    // Conditional: Only update server in Web version
+    if (!isElectron() && currentUser) {
+      await updateUserProxyServer(currentUser.id, null);
+    }
     await signOutUser();
     localStorage.removeItem('currentUser');
     sessionStorage.clear();
@@ -183,7 +188,7 @@ const App: React.FC = () => {
     const initSystem = async () => {
         if (!currentUser) return;
 
-        // 1. Shared API Key
+        // 1. Shared API Key - SAMA untuk kedua-dua
         if (!activeApiKey) {
             const key = await getSharedMasterApiKey();
             if (key) {
@@ -192,27 +197,34 @@ const App: React.FC = () => {
             }
         }
 
-        // 2. Proxy Server
-        const currentServer = sessionStorage.getItem('selectedProxyServer');
-        if (!currentServer) {
-            const servers = await getAvailableServersForUser(currentUser);
-            if (servers.length > 0) {
-                let selected: string;
-                if (window.location.hostname === 'localhost') {
-                    // If running on localhost, prefer localhost server
-                    const localhostUrl = 'http://localhost:3001'; // Backend uses HTTP
-                    const localhostServer = servers.find(s => s === localhostUrl);
-                    selected = localhostServer || servers[0];
-                } else {
-                    // For webbase users, randomly select from available servers
-                    const randomIndex = Math.floor(Math.random() * servers.length);
-                    selected = servers[randomIndex];
+        // 2. Proxy Server - CONDITIONAL behavior
+        if (isElectron()) {
+            // Electron: always localhost
+            const localhostUrl = 'http://localhost:3001';
+            sessionStorage.setItem('selectedProxyServer', localhostUrl);
+        } else {
+            // Web: selection logic
+            const currentServer = sessionStorage.getItem('selectedProxyServer');
+            if (!currentServer) {
+                const servers = await getAvailableServersForUser(currentUser);
+                if (servers.length > 0) {
+                    let selected: string;
+                    if (isLocalhost()) {
+                        // If running on localhost, prefer localhost server
+                        const localhostUrl = 'http://localhost:3001'; // Backend uses HTTP
+                        const localhostServer = servers.find(s => s === localhostUrl);
+                        selected = localhostServer || servers[0];
+                    } else {
+                        // For webbase users, randomly select from available servers
+                        const randomIndex = Math.floor(Math.random() * servers.length);
+                        selected = servers[randomIndex];
+                    }
+                    sessionStorage.setItem('selectedProxyServer', selected);
                 }
-                sessionStorage.setItem('selectedProxyServer', selected);
             }
         }
 
-        // 3. Veo Tokens (Background)
+        // 3. Veo Tokens (Background) - SAMA untuk kedua-dua
         getVeoAuthTokens().then(tokens => {
             if (tokens) {
                 sessionStorage.setItem('veoAuthTokens', JSON.stringify(tokens));
@@ -379,7 +391,7 @@ const App: React.FC = () => {
 
   return (
     // Main App Container - Using dvh for better mobile viewport handling
-    <div className="flex h-screen sm:h-[100dvh] font-sans relative overflow-hidden">
+    <div className="flex h-screen sm:h-[100dvh] font-sans selection:bg-brand-start selection:text-white relative overflow-hidden">
         
         {/* Unified Navigation (Floating Rail/Bottom) */}
         <Navigation 
@@ -403,7 +415,7 @@ const App: React.FC = () => {
                     
                     {/* Desktop spacer */}
                     <div className="hidden md:block">
-                        <span className="text-xs font-mono text-neutral-500 dark:text-neutral-500 uppercase tracking-widest">MK-Anti-Captcha.v2</span>
+                        <span className="text-xs font-mono text-neutral-500 dark:text-neutral-500 uppercase tracking-widest">{APP_VERSION}</span>
                     </div>
                     
                     {/* Right Actions */}

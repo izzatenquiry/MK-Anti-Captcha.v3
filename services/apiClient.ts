@@ -4,13 +4,19 @@ import { type User } from '../types';
 import { supabase } from './supabaseClient';
 import { PROXY_SERVER_URLS, getLocalhostServerUrl } from './serverConfig';
 import { solveCaptcha } from './antiCaptchaService';
-import { hasActiveTokenUltra, getMasterRecaptchaToken } from './userService';
+import { hasActiveTokenUltra, getMasterRecaptchaToken, updateUserProxyServer } from './userService';
+import { isElectron, isLocalhost } from './environment';
 
 export const getVeoProxyUrl = (): string => {
   const localhostUrl = getLocalhostServerUrl();
   
-  // If running on localhost, default to localhost server unless user explicitly selected another
-  if (window.location.hostname === 'localhost') {
+  // Electron: always localhost
+  if (isElectron()) {
+    return localhostUrl;
+  }
+  
+  // Web: selection logic
+  if (isLocalhost()) {
     const userSelectedProxy = sessionStorage.getItem('selectedProxyServer');
     // If user selected localhost or nothing selected, use localhost
     if (!userSelectedProxy || userSelectedProxy === localhostUrl) {
@@ -32,18 +38,20 @@ export const getVeoProxyUrl = (): string => {
 export const getImagenProxyUrl = (): string => {
   const localhostUrl = getLocalhostServerUrl();
   
-  // If running on localhost, default to localhost server unless user explicitly selected another
-  if (window.location.hostname === 'localhost') {
+  // Electron: always localhost
+  if (isElectron()) {
+    return localhostUrl;
+  }
+  
+  // Web: selection logic (same as Veo)
+  if (isLocalhost()) {
     const userSelectedProxy = sessionStorage.getItem('selectedProxyServer');
-    // If user selected localhost or nothing selected, use localhost
     if (!userSelectedProxy || userSelectedProxy === localhostUrl) {
       return localhostUrl;
     }
-    // If user explicitly selected a different server, respect that choice
     return userSelectedProxy;
   }
   
-  // Not on localhost - use user selection or default
   const userSelectedProxy = sessionStorage.getItem('selectedProxyServer');
   if (userSelectedProxy) {
       return userSelectedProxy;
@@ -300,14 +308,24 @@ export const executeProxiedRequest = async (
 
   const currentUser = getCurrentUserInternal();
 
+  // 4.5. Record server usage with timestamp (fire-and-forget, only for Web version and actual API calls)
+  if (!isElectron() && currentUser && currentServerUrl && !isStatusCheck) {
+    // Record the actual server being used (not hardcoded)
+    updateUserProxyServer(currentUser.id, currentServerUrl).catch(err => {
+      // Silently fail - don't block API calls for logging
+      console.warn('Failed to record server usage:', err);
+    });
+  }
+
   // 5. Execute
   try {
-      // When using localhost server, use relative path to leverage Vite proxy
-      // This avoids CORS and mixed content issues when frontend is HTTPS
+      // Detect if running in Electron (desktop mode)
+      // In Electron, always use absolute URL (file:// protocol doesn't support relative API paths)
+      // In browser, use relative path to leverage Vite proxy during development
       const isLocalhostServer = currentServerUrl.includes('localhost:3001');
-      const endpoint = isLocalhostServer 
-          ? `/api/${serviceType}${relativePath}`  // Use proxy path for localhost
-          : `${currentServerUrl}/api/${serviceType}${relativePath}`;  // Use absolute URL for remote servers
+      const endpoint = (isElectron() || !isLocalhostServer)
+          ? `${currentServerUrl}/api/${serviceType}${relativePath}`  // Use absolute URL for Electron or remote servers
+          : `/api/${serviceType}${relativePath}`;  // Use proxy path for browser with localhost
       
       const response = await fetch(endpoint, {
           method: 'POST',
@@ -363,3 +381,4 @@ export const executeProxiedRequest = async (
       throw error;
   }
 };
+

@@ -12,7 +12,6 @@ interface RegisterTokenUltraProps {
 }
 
 const RegisterTokenUltra: React.FC<RegisterTokenUltraProps> = ({ currentUser, onUserUpdate }) => {
-  const [telegramId, setTelegramId] = useState(currentUser.telegramId || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -22,20 +21,17 @@ const RegisterTokenUltra: React.FC<RegisterTokenUltraProps> = ({ currentUser, on
     if (e) {
       e.preventDefault();
     }
-    
-    if (!telegramId.trim()) {
-      setErrorMessage('Please enter your Telegram ID');
-      return;
-    }
 
     setIsSubmitting(true);
     setSubmitStatus('idle');
     setErrorMessage(null);
 
     try {
+      // Use user ID as telegramId fallback if no telegramId available
+      const telegramId = currentUser.telegramId || currentUser.id || '';
       const result = await registerTokenUltra(
         currentUser.id,
-        telegramId.trim()
+        telegramId
       );
 
       if (result.success) {
@@ -109,35 +105,6 @@ const RegisterTokenUltra: React.FC<RegisterTokenUltraProps> = ({ currentUser, on
             />
           </div>
 
-          {/* Telegram ID Field */}
-          <div>
-            <label className="block text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">
-              Telegram ID <span className="text-red-500">*</span>
-            </label>
-            <p className="mb-2 text-xs text-neutral-600 dark:text-neutral-400">
-              PM telegram bot ini untuk dapatkan Telegram ID anda:{' '}
-              <a 
-                href="https://t.me/MKAITokenBot" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-primary-600 dark:text-primary-400 hover:underline font-medium"
-              >
-                https://t.me/MKAITokenBot
-              </a>
-            </p>
-            <input
-              type="text"
-              value={telegramId}
-              onChange={(e) => setTelegramId(e.target.value)}
-              placeholder="Enter your Telegram ID (e.g., @username or 123456789)"
-              required
-              className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
-            />
-            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-              Your Telegram ID will be used for payment confirmation and token delivery.
-            </p>
-          </div>
-
           {/* Error Message */}
           {errorMessage && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-start gap-2">
@@ -208,7 +175,6 @@ const RegisterTokenUltra: React.FC<RegisterTokenUltraProps> = ({ currentUser, on
         <TelegramShareModal
           userName={currentUser.fullName || currentUser.username}
           userEmail={currentUser.email}
-          telegramId={telegramId}
           userId={currentUser.id}
           onClose={() => setShowTelegramModal(false)}
           onUserUpdate={onUserUpdate}
@@ -222,7 +188,6 @@ const RegisterTokenUltra: React.FC<RegisterTokenUltraProps> = ({ currentUser, on
 interface TelegramShareModalProps {
   userName: string;
   userEmail: string;
-  telegramId: string;
   userId: string;
   onClose: () => void;
   onUserUpdate?: (user: User) => void;
@@ -231,7 +196,6 @@ interface TelegramShareModalProps {
 const TelegramShareModal: React.FC<TelegramShareModalProps> = ({
   userName,
   userEmail,
-  telegramId,
   userId,
   onClose,
   onUserUpdate,
@@ -242,7 +206,6 @@ const TelegramShareModal: React.FC<TelegramShareModalProps> = ({
 
 Name: ${userName}
 Email: ${userEmail}
-Telegram ID: ${telegramId}
 
 Please find payment proof attached.`;
 

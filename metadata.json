@@ -1,5 +1,5 @@
 {
-  "name": "MK-Anti-Captcha.v3",
-  "description": "All-in-one AI platform powered by MONOklix!",
+  "name": "MK_Unified_Version",
+  "description": "All-in-one AI platform powered by MONOklix! (Unified for Electron and Web)",
   "requestFramePermissions": []
 }

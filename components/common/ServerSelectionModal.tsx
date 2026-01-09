@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { XIcon, ServerIcon, CheckCircleIcon } from '../Icons';
+import { XIcon, ServerIcon, CheckCircleIcon, InformationCircleIcon } from '../Icons';
 import { getAvailableServersForUser } from '../../services/userService';
 import { type User } from '../../types';
+import { isElectron, isLocalhost } from '../../services/environment';
 
 interface ServerSelectionModalProps {
     isOpen: boolean;
@@ -43,15 +44,29 @@ const ServerSelectionModal: React.FC<ServerSelectionModalProps> = ({ isOpen, onC
                     <button onClick={onClose} className="p-1 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800"><XIcon className="w-5 h-5" /></button>
                 </div>
                 
+                {/* Info message for Electron */}
+                {isElectron() && (
+                    <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                        <p className="text-sm text-blue-800 dark:text-blue-200 flex items-center gap-2">
+                            <InformationCircleIcon className="w-4 h-4 flex-shrink-0" />
+                            <span>Electron version uses localhost server only.</span>
+                        </p>
+                    </div>
+                )}
+                
                 <div className="space-y-3 max-h-[60vh] overflow-y-auto custom-scrollbar">
                     {servers
                         .filter(server => {
-                            // Hide localhost server if user is not on localhost
-                            const isLocalhost = server === 'http://localhost:3001' || server === 'https://localhost:3001';
-                            const isUserOnLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                            // In Electron, only show localhost
+                            if (isElectron()) {
+                                return server.includes('localhost:3001');
+                            }
+                            
+                            // In Web, filter based on hostname
+                            const isLocalhostServer = server === 'http://localhost:3001' || server === 'https://localhost:3001';
                             
                             // Show localhost server only if user is on localhost
-                            if (isLocalhost && !isUserOnLocalhost) {
+                            if (isLocalhostServer && !isLocalhost()) {
                                 return false;
                             }
                             return true;

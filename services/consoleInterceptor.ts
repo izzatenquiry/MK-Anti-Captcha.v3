@@ -26,9 +26,16 @@ export const initializeConsoleInterceptor = () => {
         return String(arg);
       }).join(' ');
 
+      // Detect success messages and set level to 'success'
+      let logLevel: 'log' | 'warn' | 'error' | 'debug' | 'success' = level;
+      const messageLower = message.toLowerCase();
+      if (messageLower.includes('success') || message.includes('✅') || message.includes('[API Client] Success')) {
+        logLevel = 'success';
+      }
+
       // Dispatch event for the UI
       eventBus.dispatch('consoleLog', {
-        level,
+        level: logLevel,
         message,
         timestamp: new Date(),
       });

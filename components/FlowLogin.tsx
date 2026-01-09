@@ -76,6 +76,8 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
     const [tokenCredits, setTokenCredits] = useState<number | null>(null);
     const [tokenCopied, setTokenCopied] = useState(false);
     const [generatedTokenSaved, setGeneratedTokenSaved] = useState(false);
+    const [countdown, setCountdown] = useState<number | null>(null);
+    const countdownIntervalRef = useRef<number | null>(null);
     
     const fetchCurrentServer = useCallback(() => {
         const server = sessionStorage.getItem('selectedProxyServer');
@@ -245,6 +247,15 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
         }
     }, [isAntiCaptchaVideoModalOpen]);
 
+    // Cleanup countdown interval on unmount
+    useEffect(() => {
+        return () => {
+            if (countdownIntervalRef.current) {
+                clearInterval(countdownIntervalRef.current);
+            }
+        };
+    }, []);
+
     const handleTestAntiCaptcha = async () => {
         if (!antiCaptchaApiKey.trim()) return;
         setAntiCaptchaTestStatus('testing');
@@ -307,8 +318,26 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
         setGeneratedToken('');
         setTokenCredits(null);
         
+        // Start countdown from 120 seconds
+        setCountdown(120);
+        
+        // Clear any existing interval
+        if (countdownIntervalRef.current) {
+            clearInterval(countdownIntervalRef.current);
+        }
+        
+        // Start countdown timer
+        countdownIntervalRef.current = window.setInterval(() => {
+            setCountdown(prev => {
+                if (prev === null) return null;
+                return prev - 1;
+            });
+        }, 1000);
+        
+        const startTime = Date.now();
+        
         try {
-            // Get API URL with auto-detection (localhost first, then server IP)
+            // Use centralized API for all environments
             const apiUrl = await getBotAdminApiUrlWithFallback();
             
             // Use email, telegram_id, or username to find user
@@ -324,6 +353,11 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
             } else {
                 setTokenError('User email, ID, or username is required');
                 setIsLoadingToken(false);
+                if (countdownIntervalRef.current) {
+                    clearInterval(countdownIntervalRef.current);
+                    countdownIntervalRef.current = null;
+                }
+                setCountdown(null);
                 return;
             }
             
@@ -337,6 +371,9 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
             
             const data = await response.json();
             
+            const elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+            const remainingTime = 120 - elapsedTime;
+            
             if (data.success) {
                 setGeneratedToken(data.token);
                 setTokenCredits(data.credits);
@@ -345,15 +382,37 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
                 if (data.token) {
                     setFlowToken(data.token);
                 }
+                
+                // Stop countdown if completed early
+                if (countdownIntervalRef.current) {
+                    clearInterval(countdownIntervalRef.current);
+                    countdownIntervalRef.current = null;
+                }
+                // If completed early, set to 0, otherwise show negative
+                setCountdown(remainingTime > 0 ? 0 : remainingTime);
             } else {
                 setTokenError(data.error || 'Failed to generate token');
                 setGeneratedToken('');
                 setTokenCredits(null);
+                
+                // Stop countdown on error
+                if (countdownIntervalRef.current) {
+                    clearInterval(countdownIntervalRef.current);
+                    countdownIntervalRef.current = null;
+                }
+                setCountdown(null);
             }
         } catch (err: any) {
             setTokenError(`Error: ${err.message || 'Failed to connect to API'}`);
             setGeneratedToken('');
             setTokenCredits(null);
+            
+            // Stop countdown on error
+            if (countdownIntervalRef.current) {
+                clearInterval(countdownIntervalRef.current);
+                countdownIntervalRef.current = null;
+            }
+            setCountdown(null);
         } finally {
             setIsLoadingToken(false);
         }
@@ -501,7 +560,11 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
                                 {isLoadingToken ? (
                                     <>
                                         <Spinner />
-                                        Generating Token...
+                                        {countdown !== null ? (
+                                            <span>Generating Token... ({countdown > 0 ? `${countdown}s` : `-${Math.abs(countdown)}s`})</span>
+                                        ) : (
+                                            <span>Generating Token...</span>
+                                        )}
                                     </>
                                 ) : (
                                     <>
