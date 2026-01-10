@@ -367,7 +367,7 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
     const handleGetToken = () => window.open('https://labs.google/fx/api/auth/session', '_blank');
 
     const handleTestToken = useCallback(async () => {
-        const tokenToTest = flowToken.trim() || currentUser?.personalAuthToken;
+        const tokenToTest = flowToken.trim() || generatedToken?.trim() || currentUser?.personalAuthToken;
         if (!tokenToTest) return;
         setTestStatus('testing');
         setTestResults(null);
@@ -379,7 +379,7 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
         } finally {
             setTestStatus('idle');
         }
-    }, [flowToken, currentUser?.personalAuthToken]);
+    }, [flowToken, generatedToken, currentUser?.personalAuthToken]);
 
     const handleGetNewToken = async () => {
         if (!currentUser) return;
@@ -449,9 +449,12 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
                 setGeneratedToken(data.token);
                 setTokenCredits(data.credits);
                 setTokenError(null);
-                // Optionally auto-fill the flow token field
+                // Auto-fill the flow token field which will trigger auto-save
                 if (data.token) {
                     setFlowToken(data.token);
+                    // Show success notification
+                    setSuccessMessage('Token generated successfully and auto-saved!');
+                    setTimeout(() => setSuccessMessage(null), 5000);
                 }
                 
                 // Stop countdown if completed early
@@ -677,45 +680,40 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
 
                         {generatedToken && (
                             <div className="mt-4 space-y-3">
+                                {/* Success Notification */}
+                                {successMessage && (
+                                    <div className="p-3 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg">
+                                        <div className="flex items-center gap-2">
+                                            <CheckCircleIcon className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
+                                            <p className="text-sm font-semibold text-green-800 dark:text-green-200">
+                                                {successMessage}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="p-4 bg-gray-50 dark:bg-neutral-800 rounded-lg border border-gray-200 dark:border-neutral-700">
                                     <div className="flex items-center justify-between mb-2">
                                         <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
                                             Generated Token:
                                         </label>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                onClick={handleSaveGeneratedToken}
-                                                className="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded transition-colors flex items-center gap-1"
-                                            >
-                                                {generatedTokenSaved ? (
-                                                    <>
-                                                        <CheckCircleIcon className="w-3 h-3" />
-                                                        Saved!
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <KeyIcon className="w-3 h-3" />
-                                                        Save
-                                                    </>
-                                                )}
-                                            </button>
-                                            <button
-                                                onClick={handleCopyGeneratedToken}
-                                                className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors flex items-center gap-1"
-                                            >
-                                                {tokenCopied ? (
-                                                    <>
-                                                        <CheckCircleIcon className="w-3 h-3" />
-                                                        Copied!
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <ClipboardIcon className="w-3 h-3" />
-                                                        Copy
-                                                    </>
-                                                )}
-                                            </button>
-                                        </div>
+                                        <button
+                                            onClick={handleTestToken}
+                                            disabled={testStatus === 'testing' || !generatedToken.trim()}
+                                            className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {testStatus === 'testing' ? (
+                                                <>
+                                                    <Spinner />
+                                                    Testing...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <PlayIcon className="w-3 h-3" />
+                                                    Health Test Now
+                                                </>
+                                            )}
+                                        </button>
                                     </div>
                                     <textarea
                                         readOnly
@@ -734,7 +732,7 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
                                                 <span className="font-semibold">Credits:</span> {tokenCredits.toLocaleString()}
                                             </p>
                                             <p className="text-gray-500 dark:text-gray-400 text-xs">
-                                                Token generated from API
+                                                Token generated from API and auto-saved
                                             </p>
                                         </div>
                                     </div>
