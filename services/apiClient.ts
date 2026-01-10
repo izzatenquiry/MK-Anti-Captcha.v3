@@ -280,6 +280,60 @@ const getRecaptchaToken = async (projectId?: string, onStatusUpdate?: (status: s
     }
 };
 
+/**
+ * Get reCAPTCHA token from anti-captcha.com - PERSONAL KEY ONLY
+ * For NANOBANANA PRO: Only uses personal key, NEVER uses master key
+ * Returns null if personal key is not configured
+ * @param projectId - Optional project ID to use for captcha solving (must match request body)
+ */
+const getPersonalRecaptchaToken = async (projectId?: string, onStatusUpdate?: (status: string) => void): Promise<string | null> => {
+    try {
+        const currentUser = getCurrentUserInternal();
+        if (!currentUser) {
+            console.error('[API Client] getPersonalRecaptchaToken: No current user found');
+            return null;
+        }
+
+        // NANOBANANA PRO: Force use personal key only - NEVER use master key
+        const personalKey = currentUser.recaptchaToken || '';
+        
+        if (!personalKey.trim()) {
+            console.error('[API Client] ❌ NANOBANANA PRO requires personal Anti-Captcha API key');
+            if (onStatusUpdate) onStatusUpdate('Personal Anti-Captcha API key required');
+            return null;
+        }
+
+        console.log('[API Client] Using personal Anti-Captcha API key for NANOBANANA PRO');
+
+        // Use projectId from parameter (from request body), fallback to localStorage, then undefined (will auto-generate)
+        const finalProjectId = projectId || localStorage.getItem('antiCaptchaProjectId') || undefined;
+
+        if (onStatusUpdate) onStatusUpdate('Solving reCAPTCHA...');
+        console.log('[API Client] Getting reCAPTCHA token from anti-captcha.com (personal key only)...', {
+            apiKeyLength: personalKey.length,
+            hasProjectId: !!finalProjectId
+        });
+        if (finalProjectId) {
+            console.log(`[API Client] Using projectId: ${finalProjectId.substring(0, 8)}...`);
+        }
+
+        const token = await solveCaptcha({
+            apiKey: personalKey.trim(),
+            projectId: finalProjectId
+        });
+
+        if (token) {
+            console.log('[API Client] ✅ reCAPTCHA token obtained (personal key), length:', token.length);
+        } else {
+            console.error('[API Client] ❌ solveCaptcha returned null/empty token');
+        }
+        return token;
+    } catch (error) {
+        console.error('[API Client] ❌ Failed to get reCAPTCHA token (personal key):', error);
+        return null;
+    }
+};
+
 // --- EXECUTE REQUEST (STRICT PERSONAL TOKEN ONLY) ---
 
 export const executeProxiedRequest = async (
@@ -323,7 +377,13 @@ export const executeProxiedRequest = async (
     // For NANOBANANA 2, projectId is in requests[0].clientContext.projectId
     const projectIdFromBody = requestBody.clientContext?.projectId || requestBody.requests?.[0]?.clientContext?.projectId;
 
-    recaptchaToken = await getRecaptchaToken(projectIdFromBody, onStatusUpdate);
+    // NANOBANANA PRO: Use personal key only (bypass master key)
+    if (serviceType === 'nanobanana') {
+        recaptchaToken = await getPersonalRecaptchaToken(projectIdFromBody, onStatusUpdate);
+    } else {
+        // For Veo and other services, use normal getRecaptchaToken (can use master key if available)
+        recaptchaToken = await getRecaptchaToken(projectIdFromBody, onStatusUpdate);
+    }
 
     // Inject reCAPTCHA token into request body if available
     // Same for Veo and NANOBANANA 2 - only inject in top level clientContext

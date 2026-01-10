@@ -36,7 +36,7 @@ const MarketingCopyView: React.FC<MarketingCopyViewProps> = ({ language }) => {
     const [targetAudience, setTargetAudience] = useState('');
     const [keywords, setKeywords] = useState('');
     const [selectedTone, setSelectedTone] = useState(tones[0]);
-    const [selectedLanguage, setSelectedLanguage] = useState("English");
+    const [selectedLanguage, setSelectedLanguage] = useState("Bahasa Malaysia");
     const [generatedCopy, setGeneratedCopy] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -114,7 +114,7 @@ const MarketingCopyView: React.FC<MarketingCopyViewProps> = ({ language }) => {
         setTargetAudience('');
         setKeywords('');
         setSelectedTone(tones[0]);
-        setSelectedLanguage("English");
+        setSelectedLanguage("Bahasa Malaysia");
         setGeneratedCopy('');
         setError(null);
         sessionStorage.removeItem(SESSION_KEY);

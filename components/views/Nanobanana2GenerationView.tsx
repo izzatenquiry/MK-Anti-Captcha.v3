@@ -2,11 +2,11 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { addHistoryItem } from '../../services/historyService';
 import Spinner from '../common/Spinner';
-import { UploadIcon, TrashIcon, DownloadIcon, VideoIcon, StarIcon, WandIcon, AlertTriangleIcon, RefreshCwIcon } from '../Icons';
+import { UploadIcon, TrashIcon, DownloadIcon, VideoIcon, StarIcon, WandIcon, AlertTriangleIcon, RefreshCwIcon, EyeIcon, EyeOffIcon, CheckCircleIcon, InformationCircleIcon } from '../Icons';
 import TwoColumnLayout from '../common/TwoColumnLayout';
 import { handleApiError } from '../../services/errorHandler';
 import { generateImageWithNanobanana2, mapAspectRatio } from '../../services/nanobanana2Service';
-import { incrementImageUsage } from '../../services/userService';
+import { incrementImageUsage, saveUserRecaptchaToken, hasActiveTokenUltraWithRegistration, getMasterRecaptchaToken } from '../../services/userService';
 import { type User, type Language } from '../../types';
 import CreativeDirectionPanel from '../common/CreativeDirectionPanel';
 import { getInitialCreativeDirectionState, type CreativeDirectionState } from '../../services/creativeDirectionService';
@@ -118,6 +118,13 @@ const Nanobanana2GenerationView: React.FC<Nanobanana2GenerationViewProps> = ({
     creativeState: CreativeDirectionState;
   } | null>(null);
 
+  // Personal Anti-Captcha Key state
+  const [showPersonalKeyForm, setShowPersonalKeyForm] = useState(false);
+  const [personalKeyInput, setPersonalKeyInput] = useState('');
+  const [showPersonalKey, setShowPersonalKey] = useState(false);
+  const [isSavingPersonalKey, setIsSavingPersonalKey] = useState(false);
+  const [saveKeyStatus, setSaveKeyStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+
   const isEditing = referenceImages.length > 0;
 
   useEffect(() => {
@@ -167,6 +174,15 @@ const Nanobanana2GenerationView: React.FC<Nanobanana2GenerationViewProps> = ({
       clearPresetPrompt();
     }
   }, [presetPrompt, clearPresetPrompt]);
+
+  // Check if user has personal key on mount and when currentUser changes
+  useEffect(() => {
+    if (!(currentUser.recaptchaToken && currentUser.recaptchaToken.trim())) {
+      setShowPersonalKeyForm(true);
+    } else {
+      setShowPersonalKeyForm(false);
+    }
+  }, [currentUser.recaptchaToken]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -336,7 +352,76 @@ const Nanobanana2GenerationView: React.FC<Nanobanana2GenerationViewProps> = ({
     }
   }, [prompt, aspectRatio, creativeState, currentUser, onUserUpdate, referenceImages, isEditing]);
 
+  const handleSavePersonalKey = async () => {
+    // Frontend validation: Check if input key matches master key - for ALL users
+    if (personalKeyInput.trim()) {
+      try {
+        // Get master token from cache or fetch - check for ALL users (not just Token Ultra active)
+        let masterKey: string | null = null;
+        
+        // Check cache first
+        const cachedMasterToken = sessionStorage.getItem('master_recaptcha_token');
+        if (cachedMasterToken && cachedMasterToken.trim()) {
+          masterKey = cachedMasterToken;
+        } else {
+          // Fetch if not cached
+          const masterTokenResult = await getMasterRecaptchaToken();
+          if (masterTokenResult.success && masterTokenResult.apiKey) {
+            masterKey = masterTokenResult.apiKey;
+          }
+        }
+
+        // Compare if master key exists - Block master key for ALL users
+        if (masterKey && masterKey.trim() === personalKeyInput.trim()) {
+          setSaveKeyStatus('error');
+          setError('You cannot use the master Anti-Captcha API key. Please use your own personal Anti-Captcha API key.');
+          return;
+        }
+      } catch (validationError) {
+        console.error('Error validating key:', validationError);
+        // Continue with save if validation fails
+      }
+    }
+
+    setIsSavingPersonalKey(true);
+    setSaveKeyStatus('saving');
+    try {
+      const result = await saveUserRecaptchaToken(currentUser.id, personalKeyInput.trim() || null);
+      if (result.success) {
+        onUserUpdate(result.user);
+        setSaveKeyStatus('success');
+        setShowPersonalKeyForm(false);
+        setPersonalKeyInput('');
+        setError(null); // Clear any previous errors
+        setTimeout(() => {
+          setSaveKeyStatus('idle');
+        }, 2000);
+      } else {
+        setSaveKeyStatus('error');
+        // Check for master key error message
+        if (result.message.includes('MASTER_KEY_NOT_ALLOWED')) {
+          setError('You cannot use the master Anti-Captcha API key. Please use your own personal Anti-Captcha API key.');
+        } else {
+          setError(result.message || 'Failed to save key. Please try again.');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to save personal key:', err);
+      setSaveKeyStatus('error');
+      setError('Failed to save key. Please try again.');
+    } finally {
+      setIsSavingPersonalKey(false);
+    }
+  };
+
   const handleGenerate = useCallback(async () => {
+    // NANOBANANA PRO requires personal anti-captcha key
+    if (!(currentUser.recaptchaToken && currentUser.recaptchaToken.trim())) {
+      setError('Personal Anti-Captcha API key is required for NANOBANANA PRO. Please enter your key above.');
+      setShowPersonalKeyForm(true);
+      return;
+    }
+
     if (!prompt.trim() && !isEditing) {
       setError("Please enter a prompt to describe the image you want to create.");
       return;
@@ -392,7 +477,7 @@ const Nanobanana2GenerationView: React.FC<Nanobanana2GenerationViewProps> = ({
 
     setIsLoading(false);
     setStatusMessage('');
-  }, [numberOfImages, prompt, generateOneImage, aspectRatio]);
+  }, [numberOfImages, prompt, generateOneImage, aspectRatio, currentUser.recaptchaToken]);
   
   const handleRetry = useCallback(async (index: number) => {
     setImages(prev => {
@@ -446,7 +531,7 @@ const Nanobanana2GenerationView: React.FC<Nanobanana2GenerationViewProps> = ({
       </div>
       
       <div>
-        <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Reference Images (up to 4) - Coming Soon</label>
+        <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Reference Images (up to 4)</label>
           <div className="bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-3 min-h-[116px]">
               <div className="flex items-center gap-3 flex-wrap">
                   {referenceImages.map(img => (
@@ -465,13 +550,17 @@ const Nanobanana2GenerationView: React.FC<Nanobanana2GenerationViewProps> = ({
                   )}
                   <input type="file" accept="image/png, image/jpeg, image/jpg" multiple ref={fileInputRef} onChange={handleFileChange} className="hidden" />
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Image-to-image generation coming soon. Currently supports text-to-image only.</p>
+              {isEditing ? (
+                  <p className="text-xs text-primary-600 dark:text-primary-400 mt-2 p-2 bg-primary-500/10 rounded-md" dangerouslySetInnerHTML={{ __html: 'You are in <strong>Image Editing Mode</strong>. The prompt will be used as instructions to edit the source image.' }}/>
+              ) : (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Upload an image to edit it or combine it with your prompt.</p>
+              )}
           </div>
       </div>
 
       <div>
         <label htmlFor="prompt" className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Prompt</label>
-        <textarea id="prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="e.g., 3 orang sedang mendaki gunung kinabalu" rows={4} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-3 focus:ring-2 focus:ring-primary-500 focus:outline-none transition" />
+        <textarea id="prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="e.g., 3 people climbing Mount Kinabalu" rows={4} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-3 focus:ring-2 focus:ring-primary-500 focus:outline-none transition" />
       </div>
 
       <CreativeDirectionPanel
@@ -484,6 +573,107 @@ const Nanobanana2GenerationView: React.FC<Nanobanana2GenerationViewProps> = ({
         aspectRatio={aspectRatio}
         setAspectRatio={setAspectRatio}
       />
+
+      {/* Personal Anti-Captcha Key Form - Required for NANOBANANA PRO */}
+      {showPersonalKeyForm && (
+        <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+          <div className="flex items-start gap-3">
+            <InformationCircleIcon className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="text-sm font-bold text-blue-800 dark:text-blue-200 mb-2">
+                Personal Anti-Captcha API Key Required
+              </h3>
+              <p className="text-xs text-blue-700 dark:text-blue-300 mb-3">
+                NANOBANANA PRO requires your <strong>personal</strong> Anti-Captcha API key. 
+                This key must be different from the master key. You can get your personal key from{' '}
+                <a href="https://anti-captcha.com" target="_blank" rel="noopener noreferrer" className="underline font-semibold">
+                  anti-captcha.com
+                </a>
+                {currentUser.recaptchaToken && currentUser.recaptchaToken.trim() && (
+                  <span className="block mt-1 font-semibold">Current key: ...{currentUser.recaptchaToken.slice(-6)}</span>
+                )}
+              </p>
+              
+              {/* Show error message if exists */}
+              {error && error.includes('master') && (
+                <div className="mb-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangleIcon className="w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-red-700 dark:text-red-300 font-semibold">
+                      {error}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <div className="relative">
+                  <input
+                    type={showPersonalKey ? 'text' : 'password'}
+                    value={personalKeyInput}
+                    onChange={(e) => {
+                      setPersonalKeyInput(e.target.value);
+                      setError(null); // Clear error when user types
+                    }}
+                    placeholder={currentUser.recaptchaToken ? "Update your Anti-Captcha API key" : "Enter your Anti-Captcha API key"}
+                    className={`w-full px-4 py-2 pr-10 bg-white dark:bg-neutral-800 border ${
+                      error && error.includes('master') 
+                        ? 'border-red-300 dark:border-red-700' 
+                        : 'border-blue-300 dark:border-blue-700'
+                    } rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-sm`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPersonalKey(!showPersonalKey)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                  >
+                    {showPersonalKey ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleSavePersonalKey}
+                    disabled={isSavingPersonalKey || !personalKeyInput.trim()}
+                    className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {isSavingPersonalKey ? (
+                      <>
+                        <Spinner />
+                        Saving...
+                      </>
+                    ) : saveKeyStatus === 'success' ? (
+                      <>
+                        <CheckCircleIcon className="w-4 h-4" />
+                        Saved!
+                      </>
+                    ) : (
+                      'Save Key'
+                    )}
+                  </button>
+                  {currentUser.recaptchaToken && currentUser.recaptchaToken.trim() && (
+                    <button
+                      onClick={() => {
+                        setShowPersonalKeyForm(false);
+                        setPersonalKeyInput('');
+                        setSaveKeyStatus('idle');
+                        setError(null);
+                      }}
+                      className="px-4 py-2 bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-sm font-semibold rounded-lg hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+                {saveKeyStatus === 'error' && error && !error.includes('master') && (
+                  <p className="text-xs text-red-600 dark:text-red-400">
+                    {error}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="pt-4 mt-auto">
         <div className="flex gap-4">
@@ -498,7 +688,7 @@ const Nanobanana2GenerationView: React.FC<Nanobanana2GenerationViewProps> = ({
             Reset
           </button>
         </div>
-        {error && !isLoading && <p className="text-red-500 dark:text-red-400 mt-2 text-center">{error}</p>}
+        {error && !isLoading && !error.includes('master') && <p className="text-red-500 dark:text-red-400 mt-2 text-center">{error}</p>}
       </div>
     </>
   );

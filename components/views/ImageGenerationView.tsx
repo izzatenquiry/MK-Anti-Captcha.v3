@@ -471,7 +471,7 @@ const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCreateVideo
       </div>
       
       <div>
-        <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Reference / Source Images (up to 4)</label>
+        <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Reference Images (up to 4)</label>
           <div className="bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-3 min-h-[116px]">
               <div className="flex items-center gap-3 flex-wrap">
                   {referenceImages.map(img => (

@@ -62,7 +62,7 @@ const StaffMonoklixView: React.FC<StaffMonoklixViewProps> = ({ language }) => {
     const [error, setError] = useState<string | null>(null);
     const [generatedCopy, setGeneratedCopy] = useState<string>('');
     const [copied, setCopied] = useState(false);
-    const [selectedLanguage, setSelectedLanguage] = useState(language === 'ms' ? "Bahasa Malaysia" : "English");
+    const [selectedLanguage, setSelectedLanguage] = useState("Bahasa Malaysia");
 
     // FIX: Remove 'language' argument from getTranslations calls.
     const T = getTranslations().staffMonoklixView;

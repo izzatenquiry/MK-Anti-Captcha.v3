@@ -37,7 +37,7 @@ const ContentIdeasView: React.FC<ContentIdeasViewProps> = ({ language }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
-    const [selectedLanguage, setSelectedLanguage] = useState("English");
+    const [selectedLanguage, setSelectedLanguage] = useState("Bahasa Malaysia");
     
     useEffect(() => {
         try {
@@ -102,7 +102,7 @@ const ContentIdeasView: React.FC<ContentIdeasViewProps> = ({ language }) => {
         setTopic('');
         setResponse(null);
         setError(null);
-        setSelectedLanguage("English");
+        setSelectedLanguage("Bahasa Malaysia");
         sessionStorage.removeItem(SESSION_KEY);
     }, []);
 

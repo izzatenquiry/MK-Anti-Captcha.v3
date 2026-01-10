@@ -102,6 +102,7 @@ const AiImageSuiteView: React.FC<AiImageSuiteViewProps> = ({ onCreateVideo, onRe
                     tabs={tabs}
                     activeTab={activeTab}
                     setActiveTab={setActiveTab}
+                    isAdmin={currentUser.role === 'admin'}
                 />
             </div>
             <div className="flex-1 min-h-0">

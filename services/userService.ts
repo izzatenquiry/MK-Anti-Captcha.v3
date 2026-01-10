@@ -759,28 +759,49 @@ export const saveUserRecaptchaToken = async (
   userId: string,
   token: string | null
 ): Promise<{ success: true; user: User } | { success: false; message: string }> => {
-    const { data: updatedData, error } = await supabase
-        .from('users')
-        .update({ recaptcha_token: token })
-        .eq('id', userId)
-        .select()
-        .single();
-
-    if (error || !updatedData) {
-        const message = getErrorMessage(error);
-        // Check for the specific schema error
-        if (message.includes("column") && message.includes("does not exist")) {
-             if (message.includes('recaptcha_token')) {
-                 return { success: false, message: 'DB_SCHEMA_MISSING_COLUMN_recaptcha_token' };
-             }
+  // Validation: Prevent ALL users from saving master key as personal key
+  if (token && token.trim()) {
+    try {
+      // Get master token to compare - check for ALL users (not just Token Ultra active)
+      const masterTokenResult = await getMasterRecaptchaToken(true); // Force refresh for security
+      if (masterTokenResult.success && masterTokenResult.apiKey && masterTokenResult.apiKey.trim()) {
+        // Compare tokens (case-sensitive exact match) - Block master key for ALL users
+        if (token.trim() === masterTokenResult.apiKey.trim()) {
+          return { 
+            success: false, 
+            message: 'MASTER_KEY_NOT_ALLOWED: You cannot use the master Anti-Captcha API key as your personal key. Please use your own personal Anti-Captcha API key.' 
+          };
         }
-        return { success: false, message: message };
+      }
+    } catch (validationError) {
+      console.error('Error validating recaptcha token:', validationError);
+      // Continue with save if validation fails (don't block legitimate saves)
     }
-    
-    const typedData = updatedData as UserProfileData;
-    const updatedProfile = mapProfileToUser(typedData);
-    
-    return { success: true, user: updatedProfile };
+  }
+
+  // Proceed with normal save
+  const { data: updatedData, error } = await supabase
+      .from('users')
+      .update({ recaptcha_token: token })
+      .eq('id', userId)
+      .select()
+      .single();
+
+  if (error || !updatedData) {
+      const message = getErrorMessage(error);
+      // Check for the specific schema error
+      if (message.includes("column") && message.includes("does not exist")) {
+           if (message.includes('recaptcha_token')) {
+               return { success: false, message: 'DB_SCHEMA_MISSING_COLUMN_recaptcha_token' };
+           }
+      }
+      return { success: false, message: message };
+  }
+  
+  const typedData = updatedData as UserProfileData;
+  const updatedProfile = mapProfileToUser(typedData);
+  
+  return { success: true, user: updatedProfile };
 };
 
 /**

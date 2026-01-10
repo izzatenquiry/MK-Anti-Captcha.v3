@@ -74,7 +74,7 @@ const ProductReviewView: React.FC<ProductReviewViewProps> = ({ onReEdit, onCreat
   const [faceImage, setFaceImage] = useState<MultimodalContent | null>(null);
   const [productDesc, setProductDesc] = useState('');
   const [selectedContentType, setSelectedContentType] = useState<string>(contentTypeOptions[0]);
-  const [selectedLanguage, setSelectedLanguage] = useState<string>("English");
+  const [selectedLanguage, setSelectedLanguage] = useState<string>("Bahasa Malaysia");
   const [storyboard, setStoryboard] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [storyboardError, setStoryboardError] = useState<string | null>(null);
@@ -115,7 +115,7 @@ const ProductReviewView: React.FC<ProductReviewViewProps> = ({ onReEdit, onCreat
   const videoModel = MODELS.videoGenerationDefault;
   const [videoAspectRatio, setVideoAspectRatio] = useState('9:16');
   const [videoResolution, setVideoResolution] = useState('720p');
-  const [videoLanguage, setVideoLanguage] = useState<string>("English");
+  const [videoLanguage, setVideoLanguage] = useState<string>("Bahasa Malaysia");
   
   // New audio settings state
   const [voiceoverMode, setVoiceoverMode] = useState<'speak' | 'sing'>('speak');
