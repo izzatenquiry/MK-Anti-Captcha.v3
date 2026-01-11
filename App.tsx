@@ -542,7 +542,7 @@ const App: React.FC = () => {
                             </span>
                             {serverStatus === 'operational' && 'OPERATIONAL'}
                             {serverStatus === 'checking' && 'CHECKING...'}
-                            {serverStatus === 'offline' && 'OFFLINE'}
+                            {serverStatus === 'offline' && 'READY'}
                         </div>
 
                         <div className="h-4 w-px bg-neutral-300 dark:bg-white/10 hidden md:block"></div>

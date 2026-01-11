@@ -674,7 +674,11 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
                         {tokenError && (
                             <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg">
                                 <p className="text-sm font-semibold text-red-800 dark:text-red-200 mb-1">Error:</p>
-                                <p className="text-sm text-red-700 dark:text-red-300">{tokenError}</p>
+                                <p className="text-sm text-red-700 dark:text-red-300">
+                                    {tokenError.toLowerCase().includes('user not found') 
+                                        ? 'User not found. Please activate your Token Ultra first.' 
+                                        : tokenError}
+                                </p>
                             </div>
                         )}
 
@@ -901,11 +905,6 @@ const FlowLogin: React.FC<FlowLoginProps> = ({ currentUser, onUserUpdate, onOpen
                             >
                                 Change Server
                             </button>
-                        </div>
-                        
-                        <div className="mt-4 flex items-start gap-2 text-[11px] text-neutral-500 dark:text-neutral-400">
-                            <InformationCircleIcon className="w-4 h-4 shrink-0 mt-0.5" />
-                            <p>Tip: iOS users are recommended to use servers labeled <b>S1, S2, S3, S4, or S6</b> for optimal compatibility.</p>
                         </div>
                     </div>
                 </div>
